@@ -30,6 +30,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
+	"github.com/thunder-id/thunderid/internal/sharing"
 	"github.com/thunder-id/thunderid/internal/system/cmodels"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/kmprovider/defaultkm"
@@ -626,7 +627,7 @@ func (f *fakeRoleService) CreateRole(
 	_ context.Context, req role.RoleCreationDetail,
 ) (*role.RoleWithPermissionsAndAssignments, *tidcommon.ServiceError) {
 	f.created = append(f.created, req)
-	return &role.RoleWithPermissionsAndAssignments{ID: "role-1", Name: req.Name}, nil
+	return &role.RoleWithPermissionsAndAssignments{ID: "role-1", Name: req.Name, OUID: req.OUID}, nil
 }
 
 func (f *fakeRoleService) GetRoleWithPermissions(
@@ -643,22 +644,50 @@ func (f *fakeRoleService) UpdateRoleWithPermissions(
 	_ context.Context, _ string, req role.RoleUpdateDetail,
 ) (*role.RoleWithPermissions, *tidcommon.ServiceError) {
 	f.updated = append(f.updated, req)
-	return &role.RoleWithPermissions{ID: "role-1", Name: req.Name}, nil
+	return &role.RoleWithPermissions{ID: "role-1", Name: req.Name, OUID: req.OUID}, nil
 }
 
 type fakeRoleAssignmentService struct {
 	assignments   []role.RoleAssignment
 	assignmentErr *tidcommon.ServiceError
+	ouIDs         []string
 }
 
 func (f *fakeRoleAssignmentService) AddAssignments(
-	_ context.Context, _ string, assignments []role.RoleAssignment,
+	_ context.Context, _, ouID string, assignments []role.RoleAssignment,
 ) *tidcommon.ServiceError {
 	if f.assignmentErr != nil {
 		return f.assignmentErr
 	}
+	f.ouIDs = append(f.ouIDs, ouID)
 	f.assignments = append(f.assignments, assignments...)
 	return nil
+}
+
+type fakeSharingAdapter struct {
+	calls    []fakeSharingAdapterCall
+	shareErr *tidcommon.ServiceError
+}
+
+type fakeSharingAdapterCall struct {
+	resourceType         sharing.ResourceType
+	resourceID           string
+	owningOUID, actingOU string
+	policy               sharing.SharePolicy
+}
+
+func (f *fakeSharingAdapter) Share(
+	_ context.Context, resourceType sharing.ResourceType, resourceID, owningOUID, actingOUID string,
+	policy sharing.SharePolicy,
+) ([]sharing.ShareGrant, *tidcommon.ServiceError) {
+	if f.shareErr != nil {
+		return nil, f.shareErr
+	}
+	f.calls = append(f.calls, fakeSharingAdapterCall{
+		resourceType: resourceType, resourceID: resourceID,
+		owningOUID: owningOUID, actingOU: actingOUID, policy: policy,
+	})
+	return nil, nil
 }
 
 type fakeGroupService struct {
@@ -3144,6 +3173,104 @@ func TestImportRole_OUIDWinsOverHandle(t *testing.T) {
 	assert.Equal(t, statusSuccess, resp.Results[0].Status)
 	require.Len(t, roleSvc.created, 1)
 	assert.Equal(t, "ou-explicit", roleSvc.created[0].OUID)
+}
+
+// TestImportRole_AppliesShareGrants verifies that a create's shareGrants are replayed via the
+// sharing service, defaulting an omitted acting OU to the role's own owning OU.
+func TestImportRole_AppliesShareGrants(t *testing.T) {
+	roleSvc := &fakeRoleService{}
+	roleAssignmentSvc := &fakeRoleAssignmentService{}
+	sharingSvc := &fakeSharingAdapter{}
+	svc := newImportService(
+		nil, nil, nil, nil, nil, nil, roleSvc, roleAssignmentSvc,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+	svc.sharingService = sharingSvc
+
+	content := strings.Join([]string{
+		"resource_type: role",
+		"id: role-new",
+		"name: Viewer",
+		"ouId: ou-owner",
+		"permissions: []",
+		"shareGrants:",
+		"  - allChildren: true",
+		"  - ouId: ou-child",
+		"    ouIds: [ou-grandchild]",
+		"",
+	}, "\n")
+
+	resp, err := svc.ImportResources(context.Background(), &ImportRequest{Content: content})
+
+	require.Nil(t, err)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, statusSuccess, resp.Results[0].Status)
+	require.Len(t, sharingSvc.calls, 2)
+	assert.Equal(t, "ou-owner", sharingSvc.calls[0].actingOU)
+	assert.True(t, sharingSvc.calls[0].policy.AllChildren)
+	assert.Equal(t, "ou-child", sharingSvc.calls[1].actingOU)
+	assert.Equal(t, []string{"ou-grandchild"}, sharingSvc.calls[1].policy.OUIDs)
+}
+
+// TestImportRole_AppliesSharedAssignments verifies that an update's sharedAssignments are applied
+// per sharee OU via the role assignment service.
+func TestImportRole_AppliesSharedAssignments(t *testing.T) {
+	roleSvc := &fakeRoleService{}
+	roleAssignmentSvc := &fakeRoleAssignmentService{}
+	svc := newImportService(
+		nil, nil, nil, nil, nil, nil, roleSvc, roleAssignmentSvc,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+	svc.sharingService = &fakeSharingAdapter{}
+
+	content := strings.Join([]string{
+		"resource_type: role",
+		"id: role-1",
+		"name: Viewer",
+		"ouId: ou-owner",
+		"permissions: []",
+		"sharedAssignments:",
+		"  - ouId: ou-sharee",
+		"    assignments:",
+		"      - id: user1",
+		"        type: user",
+		"",
+	}, "\n")
+
+	resp, err := svc.ImportResources(context.Background(), &ImportRequest{Content: content})
+
+	require.Nil(t, err)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, statusSuccess, resp.Results[0].Status)
+	assert.Contains(t, roleAssignmentSvc.ouIDs, "ou-sharee")
+}
+
+// TestImportRole_ShareGrantError propagates a sharing service failure as an import failure.
+func TestImportRole_ShareGrantError(t *testing.T) {
+	roleSvc := &fakeRoleService{}
+	roleAssignmentSvc := &fakeRoleAssignmentService{}
+	svc := newImportService(
+		nil, nil, nil, nil, nil, nil, roleSvc, roleAssignmentSvc,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+	svc.sharingService = &fakeSharingAdapter{shareErr: &sharing.ErrorInvalidTargetOU}
+
+	content := strings.Join([]string{
+		"resource_type: role",
+		"id: role-new",
+		"name: Viewer",
+		"ouId: ou-owner",
+		"permissions: []",
+		"shareGrants:",
+		"  - allChildren: true",
+		"",
+	}, "\n")
+
+	resp, err := svc.ImportResources(context.Background(), &ImportRequest{Content: content})
+
+	require.Nil(t, err)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, statusFailed, resp.Results[0].Status)
 }
 
 // TestImportGroup_OUHandleResolved verifies that ou_handle on a group document is resolved

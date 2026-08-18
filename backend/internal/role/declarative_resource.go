@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/thunder-id/thunderid/internal/sharing"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 	"github.com/thunder-id/thunderid/internal/system/log"
@@ -25,11 +26,16 @@ const (
 type roleExporter struct {
 	service           RoleServiceInterface
 	assignmentService RoleAssignmentServiceInterface
+	sharingService    sharing.ServiceInterface
 }
 
 // newRoleExporter creates a new role exporter.
-func newRoleExporter(service RoleServiceInterface, assignmentService RoleAssignmentServiceInterface) *roleExporter {
-	return &roleExporter{service: service, assignmentService: assignmentService}
+func newRoleExporter(
+	service RoleServiceInterface,
+	assignmentService RoleAssignmentServiceInterface,
+	sharingService sharing.ServiceInterface,
+) *roleExporter {
+	return &roleExporter{service: service, assignmentService: assignmentService, sharingService: sharingService}
 }
 
 // GetResourceType returns the resource type for roles.
@@ -84,7 +90,17 @@ func (e *roleExporter) GetResourceByID(
 		return nil, "", err
 	}
 
-	assignments, err := e.getAllRoleAssignments(ctx, id)
+	assignments, err := e.getAllRoleAssignments(ctx, id, roleWithPermissions.OUID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	sharedAssignments, err := e.getSharedAssignments(ctx, id, roleWithPermissions.OUID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	shareGrants, err := e.getShareGrants(ctx, id)
 	if err != nil {
 		return nil, "", err
 	}
@@ -95,15 +111,61 @@ func (e *roleExporter) GetResourceByID(
 	}
 
 	role := &roleDeclarativeResource{
-		ID:          roleWithPermissions.ID,
-		Name:        roleWithPermissions.Name,
-		Description: roleWithPermissions.Description,
-		OUID:        roleWithPermissions.OUID,
-		Permissions: perms,
-		Assignments: assignments,
+		ID:                roleWithPermissions.ID,
+		Name:              roleWithPermissions.Name,
+		Description:       roleWithPermissions.Description,
+		OUID:              roleWithPermissions.OUID,
+		Permissions:       perms,
+		Assignments:       assignments,
+		ShareGrants:       shareGrants,
+		SharedAssignments: sharedAssignments,
 	}
 
 	return role, role.Name, nil
+}
+
+// getSharedAssignments exports every sharee OU's independent assignment set for the role (the
+// owning OU's own assignments are exported separately, via Assignments).
+func (e *roleExporter) getSharedAssignments(
+	ctx context.Context, roleID, owningOUID string,
+) ([]RoleSharedAssignments, *tidcommon.ServiceError) {
+	ouIDs, err := e.assignmentService.GetAssigningOUIDs(ctx, roleID)
+	if err != nil {
+		return nil, err
+	}
+
+	sharedAssignments := make([]RoleSharedAssignments, 0, len(ouIDs))
+	for _, ouID := range ouIDs {
+		if ouID == owningOUID {
+			continue
+		}
+		assignments, err := e.getAllRoleAssignments(ctx, roleID, ouID)
+		if err != nil {
+			return nil, err
+		}
+		sharedAssignments = append(sharedAssignments, RoleSharedAssignments{
+			OUID:        ouID,
+			Assignments: assignments,
+		})
+	}
+
+	return sharedAssignments, nil
+}
+
+// getShareGrants exports the role's share grants as replayable ShareRequests, in an order safe to
+// apply sequentially (a reshare is always ordered after the grant that made its issuing OU visible).
+func (e *roleExporter) getShareGrants(ctx context.Context, roleID string) ([]ShareRequest, *tidcommon.ServiceError) {
+	replayable, err := e.sharingService.ExportGrants(ctx, roleSharingResourceType, roleID)
+	if err != nil {
+		return nil, err
+	}
+
+	grants := make([]ShareRequest, 0, len(replayable))
+	for _, g := range replayable {
+		grants = append(grants, shareRequestFromReplayableGrant(g))
+	}
+
+	return grants, nil
 }
 
 // ValidateResource validates a role resource.
@@ -131,16 +193,48 @@ func (e *roleExporter) GetResourceRules() *declarativeresource.ResourceRules {
 	}
 }
 
+// pendingShare captures one declaratively-declared role's share grants (and, if any,
+// sharedAssignments) discovered while parsing, for application after every role in the batch has
+// been successfully loaded. role is the same pointer handed to the store, so its OUID reflects any
+// ou_handle resolution performed by the validator.
+type pendingShare struct {
+	role              *RoleWithPermissionsAndAssignments
+	shareGrants       []ShareRequest
+	sharedAssignments []RoleSharedAssignments
+}
+
 // loadDeclarativeResources loads immutable role resources from files.
 // The dbStore parameter is optional (can be nil) and is used for duplicate checking in composite mode.
 // The service parameter is optional (can be nil) and is used to resolve ou_handle to ou_id.
 func loadDeclarativeResources(
 	fileStore *fileBasedStore, dbStore roleStoreInterface, service RoleServiceInterface,
+	sharingService sharing.ServiceInterface,
 ) error {
+	var pending []pendingShare
+
 	resourceConfig := declarativeresource.ResourceConfig{
 		ResourceType:  "Role",
 		DirectoryName: "roles",
-		Parser:        parseToRoleWrapper,
+		Parser: func(data []byte) (interface{}, error) {
+			role, err := parseToRole(data)
+			if err != nil {
+				return nil, err
+			}
+
+			var resource roleDeclarativeResource
+			if err := yaml.Unmarshal(data, &resource); err != nil {
+				return nil, err
+			}
+			if len(resource.ShareGrants) > 0 || len(resource.SharedAssignments) > 0 {
+				pending = append(pending, pendingShare{
+					role:              role,
+					shareGrants:       resource.ShareGrants,
+					sharedAssignments: resource.SharedAssignments,
+				})
+			}
+
+			return role, nil
+		},
 		Validator: func(data interface{}) error {
 			return validateRoleWrapper(data, fileStore, dbStore, service)
 		},
@@ -162,12 +256,40 @@ func loadDeclarativeResources(
 		return fmt.Errorf("failed to load role resources: %w", err)
 	}
 
-	return nil
+	return applyPendingShares(pending, sharingService)
 }
 
-// parseToRoleWrapper wraps parseToRole to match the expected signature.
+// parseToRoleWrapper wraps parseToRole to match the generic Parser signature.
 func parseToRoleWrapper(data []byte) (interface{}, error) {
 	return parseToRole(data)
+}
+
+// applyPendingShares replays every declaratively-declared share grant via the normal Share() API,
+// in declared order, reusing its existing eligibility checks. sharedAssignments is rejected
+// outright: the file-based store has no support for sharee-OU assignment writes (AddAssignments
+// unconditionally errors there), so a declarative role cannot hold per-OU templated config.
+func applyPendingShares(pending []pendingShare, sharingService sharing.ServiceInterface) error {
+	for _, p := range pending {
+		if len(p.sharedAssignments) > 0 {
+			return fmt.Errorf(
+				"role '%s': sharedAssignments is not supported for declarative roles; "+
+					"declarative roles cannot hold per-OU templated configuration", p.role.ID)
+		}
+
+		for _, req := range p.shareGrants {
+			actingOUID := req.OUID
+			if actingOUID == "" {
+				actingOUID = p.role.OUID
+			}
+			if _, svcErr := sharingService.Share(
+				context.Background(), roleSharingResourceType, p.role.ID, p.role.OUID, actingOUID, req.ToSharePolicy(),
+			); svcErr != nil {
+				return fmt.Errorf("role '%s': failed to apply declarative share grant: %s", p.role.ID, svcErr.Code)
+			}
+		}
+	}
+
+	return nil
 }
 
 type roleDeclarativePermission ResourcePermissions
@@ -180,6 +302,14 @@ type roleDeclarativeResource struct {
 	OUHandle    string                      `yaml:"ouHandle,omitempty"`
 	Permissions []roleDeclarativePermission `yaml:"permissions"`
 	Assignments []RoleAssignment            `yaml:"assignments,omitempty"`
+	// ShareGrants declares this role's share grants, replayed via sharing.ServiceInterface.Share in
+	// declared order when loaded declaratively (see loadDeclarativeResources), or exported here for
+	// declarative round-tripping. OUID empty means "the role's own owning OU is the acting OU".
+	ShareGrants []ShareRequest `yaml:"shareGrants,omitempty"`
+	// SharedAssignments declares independent per-sharee-OU assignment sets. Only meaningful for
+	// mutable/composite-mode (DB-backed) roles: a purely declarative (file-store) role cannot hold
+	// them, since the file-based store does not support sharee-OU assignment writes.
+	SharedAssignments []RoleSharedAssignments `yaml:"sharedAssignments,omitempty"`
 }
 
 // toResourcePermissions converts roleDeclarativePermission to ResourcePermissions.
@@ -282,14 +412,14 @@ func validateRoleWrapper(
 
 func (e *roleExporter) getAllRoleAssignments(
 	ctx context.Context,
-	roleID string,
+	roleID, ouID string,
 ) ([]RoleAssignment, *tidcommon.ServiceError) {
 	offset := 0
 	limit := serverconst.MaxPageSize
 	assignments := []RoleAssignment{}
 
 	for {
-		list, err := e.assignmentService.GetRoleAssignments(ctx, roleID, limit, offset, false)
+		list, err := e.assignmentService.GetRoleAssignments(ctx, roleID, ouID, limit, offset, false)
 		if err != nil {
 			return nil, err
 		}

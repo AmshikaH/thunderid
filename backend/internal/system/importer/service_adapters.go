@@ -18,6 +18,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/group"
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
+	"github.com/thunder-id/thunderid/internal/sharing"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
 	"github.com/thunder-id/thunderid/internal/system/log"
@@ -53,13 +54,15 @@ func (s *importService) resolveImportOUHandle(
 }
 
 type roleDeclarativeYAML struct {
-	ID          string                     `yaml:"id"`
-	Name        string                     `yaml:"name"`
-	Description string                     `yaml:"description,omitempty"`
-	OUID        string                     `yaml:"ouId,omitempty"`
-	OUHandle    string                     `yaml:"ouHandle,omitempty"`
-	Permissions []role.ResourcePermissions `yaml:"permissions"`
-	Assignments []role.RoleAssignment      `yaml:"assignments,omitempty"`
+	ID                string                       `yaml:"id"`
+	Name              string                       `yaml:"name"`
+	Description       string                       `yaml:"description,omitempty"`
+	OUID              string                       `yaml:"ouId,omitempty"`
+	OUHandle          string                       `yaml:"ouHandle,omitempty"`
+	Permissions       []role.ResourcePermissions   `yaml:"permissions"`
+	Assignments       []role.RoleAssignment        `yaml:"assignments,omitempty"`
+	ShareGrants       []role.ShareRequest          `yaml:"shareGrants,omitempty"`
+	SharedAssignments []role.RoleSharedAssignments `yaml:"sharedAssignments,omitempty"`
 }
 
 type userDeclarativeYAML struct {
@@ -343,10 +346,13 @@ func (s *importService) importRole(
 						tidcommon.CustomServiceError(tidcommon.InternalServerError,
 							tidcommon.I18nMessage{DefaultValue: "roleAssignmentService not configured"}))
 				}
-				assignErr := s.roleAssignmentService.AddAssignments(ctx, updated.ID, req.Assignments)
+				assignErr := s.roleAssignmentService.AddAssignments(ctx, updated.ID, "", req.Assignments)
 				if assignErr != nil {
 					return serviceErrorOutcome(resourceTypeRole, updated.ID, updated.Name, operationUpdate, assignErr)
 				}
+			}
+			if svcErr := s.applyRoleSharing(ctx, updated.ID, updated.OUID, req); svcErr != nil {
+				return serviceErrorOutcome(resourceTypeRole, updated.ID, updated.Name, operationUpdate, svcErr)
 			}
 			return successOutcome(resourceTypeRole, updated.ID, updated.Name, operationUpdate)
 		}
@@ -360,7 +366,51 @@ func (s *importService) importRole(
 	if svcErr != nil {
 		return serviceErrorOutcome(resourceTypeRole, req.ID, req.Name, operationCreate, svcErr)
 	}
+	if svcErr := s.applyRoleSharing(ctx, created.ID, created.OUID, req); svcErr != nil {
+		return serviceErrorOutcome(resourceTypeRole, created.ID, created.Name, operationCreate, svcErr)
+	}
 	return successOutcome(resourceTypeRole, created.ID, created.Name, operationCreate)
+}
+
+// applyRoleSharing replays a declaratively-declared role's share grants (via sharingService.Share,
+// so they go through the same eligibility checks a live POST /roles/{id}/share-grants call would)
+// and independent per-sharee-OU assignment sets (via roleAssignmentService.AddAssignments), in
+// declared order. A no-op when the import declares neither.
+func (s *importService) applyRoleSharing(
+	ctx context.Context, id, ownerOUID string, req roleDeclarativeYAML,
+) *tidcommon.ServiceError {
+	if len(req.ShareGrants) == 0 && len(req.SharedAssignments) == 0 {
+		return nil
+	}
+	if s.sharingService == nil {
+		return tidcommon.CustomServiceError(tidcommon.InternalServerError,
+			tidcommon.I18nMessage{DefaultValue: "sharingService not configured"})
+	}
+
+	for _, grant := range req.ShareGrants {
+		actingOUID := grant.OUID
+		if actingOUID == "" {
+			actingOUID = ownerOUID
+		}
+		if _, svcErr := s.sharingService.Share(
+			ctx, sharing.ResourceType(resourceTypeRole), id, ownerOUID, actingOUID, grant.ToSharePolicy(),
+		); svcErr != nil {
+			return svcErr
+		}
+	}
+
+	if len(req.SharedAssignments) > 0 && s.roleAssignmentService == nil {
+		return tidcommon.CustomServiceError(tidcommon.InternalServerError,
+			tidcommon.I18nMessage{DefaultValue: "roleAssignmentService not configured"})
+	}
+	for _, sharedGroup := range req.SharedAssignments {
+		if svcErr := s.roleAssignmentService.AddAssignments(
+			ctx, id, sharedGroup.OUID, sharedGroup.Assignments); svcErr != nil {
+			return svcErr
+		}
+	}
+
+	return nil
 }
 
 func (s *importService) importGroup(
