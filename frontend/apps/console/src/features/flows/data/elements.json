@@ -173,6 +173,21 @@
   {
     "resourceType": "ELEMENT",
     "category": "FIELD",
+    "type": "OU_SELECT",
+    "display": {
+      "label": "Organization Select",
+      "description": "Pick an organization unit from a list",
+      "image": "assets/images/icons/boolean.svg"
+    },
+    "hint": "",
+    "label": "Organization",
+    "required": true,
+    "placeholder": "Select an organization",
+    "options": []
+  },
+  {
+    "resourceType": "ELEMENT",
+    "category": "FIELD",
     "type": "DROPDOWN",
     "display": {
       "label": "Choice",

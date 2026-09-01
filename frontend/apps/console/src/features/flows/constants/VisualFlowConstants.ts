@@ -65,6 +65,7 @@ class VisualFlowConstants {
     ElementTypes.Checkbox,
     ElementTypes.Dropdown,
     ElementTypes.Select,
+    ElementTypes.OuSelect,
     // Widgets are allowed for drop detection, but handled specially to show dialog
     WidgetTypes.GoogleFederation,
     WidgetTypes.IdentifierPassword,
@@ -105,6 +106,7 @@ class VisualFlowConstants {
     ElementTypes.Checkbox,
     ElementTypes.Dropdown,
     ElementTypes.Select,
+    ElementTypes.OuSelect,
     WidgetTypes.GoogleFederation,
     WidgetTypes.IdentifierPassword,
     WidgetTypes.SMSOTP,
@@ -139,6 +141,7 @@ class VisualFlowConstants {
     ElementTypes.Checkbox,
     ElementTypes.Dropdown,
     ElementTypes.Select,
+    ElementTypes.OuSelect,
     ElementTypes.Action,
     ElementTypes.Resend,
     ElementTypes.Icon,

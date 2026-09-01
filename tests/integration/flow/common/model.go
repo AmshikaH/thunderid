@@ -46,7 +46,17 @@ type Inputs struct {
 	Type       string           `json:"type"`
 	Required   bool             `json:"required"`
 	Options    []string         `json:"options,omitempty"`
+	Tree       []OUTreeNode     `json:"tree,omitempty"`
 	Validation []ValidationRule `json:"validation,omitempty"`
+}
+
+// OUTreeNode mirrors providers.OrganizationUnitTreeNode for decoding the "promptAll" strategy's
+// full organization unit hierarchy off an Inputs.Tree field.
+type OUTreeNode struct {
+	ID       string       `json:"id"`
+	Handle   string       `json:"handle"`
+	Name     string       `json:"name"`
+	Children []OUTreeNode `json:"children,omitempty"`
 }
 
 type ValidationRule struct {

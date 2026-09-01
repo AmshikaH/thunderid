@@ -109,7 +109,7 @@ function CommonElementFactory({
   if (resource.type === ElementTypes.Dropdown) {
     return <ChoiceAdapter resource={resource} />;
   }
-  if (resource.type === ElementTypes.Select) {
+  if (resource.type === ElementTypes.Select || resource.type === ElementTypes.OuSelect) {
     return <SelectAdapter resource={resource} />;
   }
   if (resource.type === ElementTypes.Action) {

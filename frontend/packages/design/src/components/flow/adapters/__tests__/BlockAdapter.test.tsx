@@ -362,3 +362,34 @@ describe('BlockAdapter: BOOLEAN_INPUT inside a form block', () => {
     expect(checkbox.checked).toBe(true);
   });
 });
+
+describe('BlockAdapter: OU_SELECT inside a form block', () => {
+  const ouSelectInput = {
+    id: 'ou_selection_input',
+    type: 'OU_SELECT',
+    ref: 'ouId',
+    label: 'Organization',
+    options: ['acme-corp', 'beta-inc'],
+  };
+  const ouSelectBlock = {
+    id: 'block_ou',
+    type: 'BLOCK',
+    components: [ouSelectInput, submitAction],
+  };
+
+  it('dispatches OU_SELECT to the OU picker rather than a plain text field', () => {
+    renderBlock(ouSelectBlock, {values: {}});
+
+    expect(screen.getByRole('combobox')).toBeTruthy();
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
+  it('carries the submitted handle into the dispatched submit action', async () => {
+    const onSubmit = vi.fn();
+    renderBlock(ouSelectBlock, {onSubmit, values: {ouId: 'beta-inc'}});
+
+    fireEvent.click(screen.getByRole('button', {name: 'Sign in'}));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({type: 'ACTION'}), {ouId: 'beta-inc'});
+  });
+});

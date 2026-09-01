@@ -73,6 +73,7 @@ export {default as DividerAdapter} from './components/flow/adapters/DividerAdapt
 export {default as IconAdapter} from './components/flow/adapters/IconAdapter';
 export {default as ImageAdapter} from './components/flow/adapters/ImageAdapter';
 export {default as OtpInputAdapter} from './components/flow/adapters/OtpInputAdapter';
+export {default as OUSelectAdapter} from './components/flow/adapters/OUSelectAdapter';
 export {default as PasswordInputAdapter} from './components/flow/adapters/PasswordInputAdapter';
 export type {PasswordInputAdapterProps} from './components/flow/adapters/PasswordInputAdapter';
 export {default as RichTextAdapter} from './components/flow/adapters/RichTextAdapter';

@@ -63,7 +63,7 @@ export const VALIDATION_RULES: ValidationRuleDefinition[] = [
   },
   // Select
   {
-    match: (r) => r.type === ElementTypes.Select,
+    match: (r) => r.type === ElementTypes.Select || r.type === ElementTypes.OuSelect,
     fields: [
       {name: 'label', errorMessageKey: 'flows:core.validation.fields.input.label'},
       {name: 'ref', errorMessageKey: 'flows:core.validation.fields.input.ref'},

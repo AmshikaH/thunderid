@@ -78,6 +78,21 @@ describe('computeValidationNotifications', () => {
       expect(result.has('input-1_REQUIRED_FIELD_ERROR')).toBe(false);
     });
 
+    it('should produce notification for a missing OU_SELECT label/ref, same as SELECT', () => {
+      const nodes = [
+        createElementNode('step-1', [
+          {id: 'ou-select-1', type: 'OU_SELECT', category: 'FIELD', config: {field: {}, styles: {}}},
+        ]),
+      ];
+
+      const result = computeValidationNotifications(nodes, VALIDATION_RULES, t);
+
+      expect(result.has('ou-select-1_REQUIRED_FIELD_ERROR')).toBe(true);
+      const notification = result.get('ou-select-1_REQUIRED_FIELD_ERROR')!;
+      expect(notification.hasResourceFieldNotification('ou-select-1_label')).toBe(true);
+      expect(notification.hasResourceFieldNotification('ou-select-1_ref')).toBe(true);
+    });
+
     it('should not produce notification when required field is present on resource directly', () => {
       const nodes = [
         createElementNode('step-1', [

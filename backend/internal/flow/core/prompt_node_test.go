@@ -1321,7 +1321,7 @@ func (s *PromptOnlyNodeTestSuite) TestExecuteWithForwardedDataPreservesPromptFie
 		},
 	})
 
-	// ForwardedData has different Ref and Type (should NOT overwrite)
+	// ForwardedData has a different Ref and Type, matched to the existing input by Identifier alone.
 	ctx := &providers.NodeContext{
 		ExecutionID: "test-flow",
 		UserInputs:  map[string]string{},
@@ -1343,14 +1343,15 @@ func (s *PromptOnlyNodeTestSuite) TestExecuteWithForwardedDataPreservesPromptFie
 	s.NotNil(resp)
 	s.Len(resp.Inputs, 1)
 
-	// Verify prompt definition fields are preserved; options are NOT enriched because the
-	// forwarded input type ("DIFFERENT_TYPE") does not match the node input type ("SELECT").
+	// Verify prompt definition fields (Ref, Type, Required) are preserved regardless of the
+	// forwarded input's own values, while Options is propagated for any input matched by
+	// Identifier — regardless of type, per enrichInputsFromForwardedData's documented contract.
 	enrichedInput := resp.Inputs[0]
 	s.Equal("usertype_input_custom", enrichedInput.Ref, "Ref should NOT be overwritten")
 	s.Equal("userType", enrichedInput.Identifier)
 	s.Equal("SELECT", enrichedInput.Type, "Type should NOT be overwritten")
 	s.True(enrichedInput.Required, "Required should NOT be overwritten")
-	s.Empty(enrichedInput.Options, "Options should NOT be enriched when forwarded type does not match")
+	s.Equal([]string{"option1"}, enrichedInput.Options, "Options should be enriched for any type match")
 }
 
 func (s *PromptOnlyNodeTestSuite) TestExecuteWithForwardedDataEmptyOptions() {
@@ -2547,6 +2548,123 @@ func (s *PromptOnlyNodeTestSuite) TestSyntheticMeta_ExistingComponentPromotedToP
 	s.Require().True(ok)
 	s.Equal(providers.InputTypePassword, comp["type"], "existing meta component must be promoted to password type")
 	s.Equal(true, comp["required"], "existing meta component must reflect promoted required flag")
+}
+
+func (s *PromptOnlyNodeTestSuite) TestSyntheticMeta_ExistingComponentPromotedWithOptions() {
+	meta := map[string]interface{}{
+		"components": []interface{}{
+			map[string]interface{}{
+				"id":       "ou_selection_input",
+				"ref":      "ouId",
+				"type":     "OU_SELECT",
+				"label":    "Organization",
+				"required": true,
+			},
+		},
+	}
+	node := newPromptNode("prompt-1", map[string]interface{}{}, false, false)
+	pn := node.(PromptNodeInterface)
+	pn.SetMeta(meta)
+	pn.SetPrompts([]common.Prompt{
+		{
+			Inputs: []providers.Input{{Ref: "ouId", Identifier: "ouId", Required: true}},
+			Action: &common.Action{Ref: "submit", NextNode: "next"},
+		},
+	})
+
+	ctx := &providers.NodeContext{
+		ExecutionID:   "test-flow",
+		CurrentAction: "submit",
+		UserInputs:    map[string]string{},
+		Verbose:       true,
+		ForwardedData: map[string]interface{}{
+			common.ForwardedDataKeyInputs: []providers.Input{
+				{
+					Identifier: "ouId", Type: "OU_SELECT", Required: true,
+					Options: []string{"acme-corp", "beta-inc"},
+				},
+			},
+		},
+	}
+	resp, err := node.Execute(ctx)
+
+	s.Nil(err)
+	s.NotNil(resp)
+	s.NotNil(resp.Meta)
+	s.Require().Len(resp.Inputs, 1)
+	s.Equal([]string{"acme-corp", "beta-inc"}, resp.Inputs[0].Options)
+
+	metaMap, ok := resp.Meta.(map[string]interface{})
+	s.Require().True(ok)
+	comps, ok := metaMap["components"].([]interface{})
+	s.Require().True(ok)
+	s.Require().Len(comps, 1)
+
+	comp, ok := comps[0].(map[string]interface{})
+	s.Require().True(ok)
+	s.Equal([]string{"acme-corp", "beta-inc"}, comp["options"],
+		"existing meta component must be promoted with the options the executor forwarded")
+}
+
+func (s *PromptOnlyNodeTestSuite) TestSyntheticMeta_ExistingComponentPromotedWithTree() {
+	meta := map[string]interface{}{
+		"components": []interface{}{
+			map[string]interface{}{
+				"id":       "ou_selection_input",
+				"ref":      "ouId",
+				"type":     "OU_SELECT",
+				"label":    "Organization",
+				"required": true,
+			},
+		},
+	}
+	node := newPromptNode("prompt-1", map[string]interface{}{}, false, false)
+	pn := node.(PromptNodeInterface)
+	pn.SetMeta(meta)
+	pn.SetPrompts([]common.Prompt{
+		{
+			Inputs: []providers.Input{{Ref: "ouId", Identifier: "ouId", Required: true}},
+			Action: &common.Action{Ref: "submit", NextNode: "next"},
+		},
+	})
+
+	tree := []providers.OrganizationUnitTreeNode{
+		{
+			ID: "ou-root", Handle: "root-org", Name: "Root Org",
+			Children: []providers.OrganizationUnitTreeNode{
+				{ID: "ou-child", Handle: "child-org", Name: "Child Org"},
+			},
+		},
+	}
+	ctx := &providers.NodeContext{
+		ExecutionID:   "test-flow",
+		CurrentAction: "submit",
+		UserInputs:    map[string]string{},
+		Verbose:       true,
+		ForwardedData: map[string]interface{}{
+			common.ForwardedDataKeyInputs: []providers.Input{
+				{Identifier: "ouId", Type: "OU_SELECT", Required: true, Tree: tree},
+			},
+		},
+	}
+	resp, err := node.Execute(ctx)
+
+	s.Nil(err)
+	s.NotNil(resp)
+	s.NotNil(resp.Meta)
+	s.Require().Len(resp.Inputs, 1)
+	s.Equal(tree, resp.Inputs[0].Tree)
+
+	metaMap, ok := resp.Meta.(map[string]interface{})
+	s.Require().True(ok)
+	comps, ok := metaMap["components"].([]interface{})
+	s.Require().True(ok)
+	s.Require().Len(comps, 1)
+
+	comp, ok := comps[0].(map[string]interface{})
+	s.Require().True(ok)
+	s.Equal(tree, comp["tree"],
+		"existing meta component must be promoted with the tree the executor forwarded")
 }
 
 func (s *PromptOnlyNodeTestSuite) TestSyntheticMeta_PromotionDoesNotMutateSharedMeta() {

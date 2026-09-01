@@ -105,6 +105,17 @@ type OrganizationUnitBasic struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
+// OrganizationUnitTreeNode represents one organization unit and its descendants, sent to a flow's
+// OU_SELECT input so the frontend can render a full expand/collapse tree without any further
+// lookups. The submitted selection is the node's ID, not its handle, so no additional
+// disambiguation is needed even when handles repeat across different branches of the tree.
+type OrganizationUnitTreeNode struct {
+	ID       string                     `json:"id"`
+	Handle   string                     `json:"handle"`
+	Name     string                     `json:"name"`
+	Children []OrganizationUnitTreeNode `json:"children,omitempty"`
+}
+
 // ResourceServerType represents the type of a resource server.
 type ResourceServerType string
 
@@ -972,13 +983,17 @@ var sensitiveInputTypes = []string{
 
 // Input represents the inputs required for a node
 type Input struct {
-	Ref         string           `json:"ref,omitempty"`
-	Identifier  string           `json:"identifier"`
-	Type        string           `json:"type"`
-	Required    bool             `json:"required"`
-	Options     []string         `json:"options,omitempty"`
-	DisplayName string           `json:"-"`
-	Validation  []ValidationRule `json:"validation,omitempty"`
+	Ref        string   `json:"ref,omitempty"`
+	Identifier string   `json:"identifier"`
+	Type       string   `json:"type"`
+	Required   bool     `json:"required"`
+	Options    []string `json:"options,omitempty"`
+	// Tree carries a hierarchical set of options (currently only organization units) for inputs
+	// that need a real expand/collapse tree rather than a flat option list. Populated instead of
+	// Options when present.
+	Tree        []OrganizationUnitTreeNode `json:"tree,omitempty"`
+	DisplayName string                     `json:"-"`
+	Validation  []ValidationRule           `json:"validation,omitempty"`
 	// OneTimeUse indicates that the input can only be consumed once
 	OneTimeUse bool `json:"oneTimeUse,omitempty"`
 }

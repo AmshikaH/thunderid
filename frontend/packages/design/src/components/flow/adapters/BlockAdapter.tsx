@@ -9,6 +9,7 @@ import {useTranslation} from 'react-i18next';
 import CheckboxAdapter from './CheckboxAdapter';
 import DividerAdapter from './DividerAdapter';
 import OtpInputAdapter from './OtpInputAdapter';
+import OUSelectAdapter from './OUSelectAdapter';
 import PasswordInputAdapter from './PasswordInputAdapter';
 import RichTextAdapter from './RichTextAdapter';
 import SelectAdapter from './SelectAdapter';
@@ -220,6 +221,10 @@ function renderFormSubComponent(
 
   if (sub.type === 'SELECT') {
     return <SelectAdapter key={sub.id ?? compIndex} {...fieldProps} />;
+  }
+
+  if (sub.type === 'OU_SELECT') {
+    return <OUSelectAdapter key={sub.id ?? compIndex} {...fieldProps} />;
   }
 
   if (sub.type === 'BOOLEAN_INPUT') {

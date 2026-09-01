@@ -55,6 +55,14 @@ vi.mock('../adapters/input/DefaultInputAdapter', () => ({
   ),
 }));
 
+vi.mock('../adapters/input/SelectAdapter', () => ({
+  default: ({resource}: {resource: Element}) => (
+    <div data-testid="select-adapter" data-resource-id={resource.id} data-type={resource.type}>
+      Select Adapter
+    </div>
+  ),
+}));
+
 vi.mock('../adapters/ChoiceAdapter', () => ({
   default: ({resource}: {resource: Element}) => (
     <div data-testid="choice-adapter" data-resource-id={resource.id}>
@@ -318,6 +326,19 @@ describe('CommonElementFactory', () => {
       render(<CommonElementFactory stepId="step-1" resource={dropdownElement} />);
 
       expect(screen.getByTestId('choice-adapter')).toBeInTheDocument();
+    });
+  });
+
+  describe('OU Select Element', () => {
+    it('should render SelectAdapter for OuSelect type', () => {
+      const ouSelectElement = createMockElement({
+        type: ElementTypes.OuSelect,
+      });
+
+      render(<CommonElementFactory stepId="step-1" resource={ouSelectElement} />);
+
+      expect(screen.getByTestId('select-adapter')).toBeInTheDocument();
+      expect(screen.getByTestId('select-adapter')).toHaveAttribute('data-type', ElementTypes.OuSelect);
     });
   });
 

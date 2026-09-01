@@ -14,6 +14,7 @@ import (
 const (
 	errCodeOUResolutionFailed    = "FET-1034"
 	errCodeOUNotValidForUserType = "FET-1075"
+	errCodeOUNotFound            = "FET-1030"
 )
 
 // ouStrategyFlowNodes builds a registration flow that resolves the user type, then the OU with the
@@ -155,6 +156,15 @@ type OUResolverStrategiesTestSuite struct {
 	promptChildAppID  string
 	callerAppID       string
 	unsupportedAppID  string
+	promptAllAppID    string
+
+	// promptAll fixtures: two separate root trees, each with a child sharing the same handle, so
+	// the tests can confirm the handle collision is resolved by ID rather than being ambiguous.
+	promptAllRoot1ID      string
+	promptAllChild1ID     string
+	promptAllGrandchildID string
+	promptAllRoot2ID      string
+	promptAllChild2ID     string
 
 	// An auth flow that references no registration flow, so binding these registration flows to an
 	// application does not collide with the default auth flow's own registration reference.
@@ -225,6 +235,47 @@ func (ts *OUResolverStrategiesTestSuite) SetupSuite() {
 		callerFlowID, ts.parentTypeName)
 	ts.unsupportedAppID = ts.createApp("OU Strategy Unsupported App", "ou_strategy_unsupported_client",
 		unsupportedFlowID, ts.parentTypeName)
+
+	promptAllFlowID := ts.createFlow("OU Resolver PromptAll Flow", "registration_flow_ou_promptall_test", "promptAll")
+	ts.promptAllAppID = ts.createApp("OU Strategy PromptAll App", "ou_strategy_promptall_client",
+		promptAllFlowID, ts.parentTypeName)
+
+	ts.promptAllRoot1ID, err = testutils.CreateOrganizationUnit(testutils.OrganizationUnit{
+		Handle: "promptall_root_1",
+		Name:   "PromptAll Root 1",
+		Parent: nil,
+	})
+	ts.Require().NoError(err, "Failed to create promptAll root 1")
+
+	ts.promptAllChild1ID, err = testutils.CreateOrganizationUnit(testutils.OrganizationUnit{
+		Handle: "promptall_shared_child",
+		Name:   "PromptAll Child 1",
+		Parent: &ts.promptAllRoot1ID,
+	})
+	ts.Require().NoError(err, "Failed to create promptAll child 1")
+
+	ts.promptAllGrandchildID, err = testutils.CreateOrganizationUnit(testutils.OrganizationUnit{
+		Handle: "promptall_grandchild",
+		Name:   "PromptAll Grandchild",
+		Parent: &ts.promptAllChild1ID,
+	})
+	ts.Require().NoError(err, "Failed to create promptAll grandchild")
+
+	ts.promptAllRoot2ID, err = testutils.CreateOrganizationUnit(testutils.OrganizationUnit{
+		Handle: "promptall_root_2",
+		Name:   "PromptAll Root 2",
+		Parent: nil,
+	})
+	ts.Require().NoError(err, "Failed to create promptAll root 2")
+
+	// Same handle as promptAllChild1, but under a different parent — the tree must list both, and
+	// selecting either by ID must land the user in the correct one.
+	ts.promptAllChild2ID, err = testutils.CreateOrganizationUnit(testutils.OrganizationUnit{
+		Handle: "promptall_shared_child",
+		Name:   "PromptAll Child 2",
+		Parent: &ts.promptAllRoot2ID,
+	})
+	ts.Require().NoError(err, "Failed to create promptAll child 2")
 }
 
 func (ts *OUResolverStrategiesTestSuite) createFlow(name, handle, resolveFrom string) string {
@@ -262,7 +313,7 @@ func (ts *OUResolverStrategiesTestSuite) createApp(name, clientID, flowID, userT
 
 func (ts *OUResolverStrategiesTestSuite) TearDownSuite() {
 	for _, appID := range []string{
-		ts.promptParentAppID, ts.promptChildAppID, ts.callerAppID, ts.unsupportedAppID,
+		ts.promptParentAppID, ts.promptChildAppID, ts.callerAppID, ts.unsupportedAppID, ts.promptAllAppID,
 	} {
 		if appID == "" {
 			continue
@@ -289,7 +340,11 @@ func (ts *OUResolverStrategiesTestSuite) TearDownSuite() {
 			ts.T().Logf("Failed to delete test user type during teardown: %v", err)
 		}
 	}
-	for _, ouID := range []string{ts.childOUID, ts.parentOUID, ts.otherOUID} {
+	for _, ouID := range []string{
+		ts.childOUID, ts.parentOUID, ts.otherOUID,
+		ts.promptAllGrandchildID, ts.promptAllChild1ID, ts.promptAllRoot1ID,
+		ts.promptAllChild2ID, ts.promptAllRoot2ID,
+	} {
 		if ouID == "" {
 			continue
 		}
@@ -389,4 +444,127 @@ func (ts *OUResolverStrategiesTestSuite) TestUnsupportedStrategy_Fails() {
 	ts.Require().NotNil(step.Error, "An unsupported strategy must be reported")
 	ts.Equal(errCodeOUResolutionFailed, step.Error.Code,
 		"An unsupported strategy must fail OU resolution")
+}
+
+// The prompt strategy resolves a submitted handle scoped to the parent OU whose children were
+// offered, not just a raw ID — the human-readable identifier path #5122 added.
+func (ts *OUResolverStrategiesTestSuite) TestPrompt_HandleSubmissionResolved() {
+	step, err := common.InitiateRegistrationFlow(ts.promptParentAppID, false, nil, "")
+	ts.Require().NoError(err, "Failed to initiate registration flow")
+	ts.Require().True(common.HasInput(step.Data.Inputs, "ouId"), "The flow should prompt for an OU")
+
+	step, err = common.CompleteFlow(step.ExecutionID,
+		map[string]string{"ouId": "ou_strategy_child_test_ou"}, "action_ou", step.ChallengeToken)
+	ts.Require().NoError(err, "Failed to submit the OU handle")
+	ts.Require().Nil(step.Error, "A valid handle among the parent's children must resolve")
+	ts.Require().Equal("INCOMPLETE", step.FlowStatus, "The flow should move on to user details")
+
+	username := common.GenerateUniqueUsername("ou_prompt_handle")
+	completed, err := common.CompleteFlow(step.ExecutionID, map[string]string{
+		"username": username,
+		"email":    username + "@ou-strategy.test",
+	}, "action_details", step.ChallengeToken)
+	ts.Require().NoError(err, "Failed to submit user details")
+	ts.Require().Equal("COMPLETE", completed.FlowStatus, "Registration should provision the user")
+
+	user := ts.trackRegisteredUser(username)
+	ts.Equal(ts.childOUID, user.OUID, "A handle submission must resolve to the same OU as the raw ID would")
+}
+
+// findOUInput returns the ouId input entry from a flow step's inputs, or nil if not present.
+func findOUInput(inputs []common.Inputs) *common.Inputs {
+	for i := range inputs {
+		if inputs[i].Identifier == "ouId" {
+			return &inputs[i]
+		}
+	}
+	return nil
+}
+
+// findTreeNode searches a promptAll tree, and every level of its descendants, for a node with the
+// given ID.
+func findTreeNode(nodes []common.OUTreeNode, id string) *common.OUTreeNode {
+	for i := range nodes {
+		if nodes[i].ID == id {
+			return &nodes[i]
+		}
+		if found := findTreeNode(nodes[i].Children, id); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// promptAll offers the entire OU hierarchy at every depth, not just root-level OUs or one parent's
+// children — the fix for the bug where it silently listed root-level OUs only.
+func (ts *OUResolverStrategiesTestSuite) TestPromptAll_FullTreeOffered() {
+	step, err := common.InitiateRegistrationFlow(ts.promptAllAppID, false, nil, "")
+	ts.Require().NoError(err, "Failed to initiate registration flow")
+	ts.Require().Equal("INCOMPLETE", step.FlowStatus, "The flow should pause for the OU selection")
+
+	ouInput := findOUInput(step.Data.Inputs)
+	ts.Require().NotNil(ouInput, "The flow should request an OU selection")
+	ts.Require().NotEmpty(ouInput.Tree, "promptAll must forward the organization unit tree")
+
+	root1 := findTreeNode(ouInput.Tree, ts.promptAllRoot1ID)
+	ts.Require().NotNil(root1, "Root 1 must be present in the tree")
+	child1 := findTreeNode(root1.Children, ts.promptAllChild1ID)
+	ts.Require().NotNil(child1, "Root 1's child must be nested under it")
+	grandchild := findTreeNode(child1.Children, ts.promptAllGrandchildID)
+	ts.Require().NotNil(grandchild, "The grandchild must be nested under its own parent, not just under the root")
+
+	root2 := findTreeNode(ouInput.Tree, ts.promptAllRoot2ID)
+	ts.Require().NotNil(root2, "Root 2 must also be present in the tree")
+	child2 := findTreeNode(root2.Children, ts.promptAllChild2ID)
+	ts.Require().NotNil(child2, "Root 2's child must be nested under it, alongside root 1's own tree")
+}
+
+// Two organization units in different branches can share a handle; promptAll's selection must still
+// land the user in the specific one that was clicked, identified by ID.
+func (ts *OUResolverStrategiesTestSuite) TestPromptAll_SelectsCorrectBranchDespiteSharedHandle() {
+	step, err := common.InitiateRegistrationFlow(ts.promptAllAppID, false, nil, "")
+	ts.Require().NoError(err, "Failed to initiate registration flow")
+
+	step, err = common.CompleteFlow(step.ExecutionID,
+		map[string]string{"ouId": ts.promptAllChild2ID}, "action_ou", step.ChallengeToken)
+	ts.Require().NoError(err, "Failed to submit the OU selection")
+	ts.Require().Nil(step.Error, "Selecting by ID must resolve even when the handle is shared elsewhere")
+
+	username := common.GenerateUniqueUsername("ou_promptall_branch")
+	completed, err := common.CompleteFlow(step.ExecutionID, map[string]string{
+		"username": username,
+		"email":    username + "@ou-strategy.test",
+	}, "action_details", step.ChallengeToken)
+	ts.Require().NoError(err, "Failed to submit user details")
+	ts.Require().Equal("COMPLETE", completed.FlowStatus, "Registration should provision the user")
+
+	user := ts.trackRegisteredUser(username)
+	ts.Equal(ts.promptAllChild2ID, user.OUID,
+		"The user must be provisioned into the specific branch that was selected by ID")
+}
+
+// promptAll no longer resolves a bare handle — only a real OU ID. Submitting the handle instead of
+// the ID must be rejected, since the same handle exists in more than one branch.
+func (ts *OUResolverStrategiesTestSuite) TestPromptAll_HandleSubmissionRejected() {
+	step, err := common.InitiateRegistrationFlow(ts.promptAllAppID, false, nil, "")
+	ts.Require().NoError(err, "Failed to initiate registration flow")
+
+	rejected, err := common.CompleteFlow(step.ExecutionID,
+		map[string]string{"ouId": "promptall_shared_child"}, "action_ou", step.ChallengeToken)
+	ts.Require().NoError(err, "A handle submission should still return a flow step")
+	ts.Require().NotNil(rejected.Error, "A bare handle must not resolve for promptAll")
+	ts.Equal(errCodeOUNotFound, rejected.Error.Code,
+		"promptAll must reject a handle the same way it rejects any other nonexistent ID")
+}
+
+// A nonexistent ID is rejected the same way as any other unresolvable selection.
+func (ts *OUResolverStrategiesTestSuite) TestPromptAll_NonExistentIDRejected() {
+	step, err := common.InitiateRegistrationFlow(ts.promptAllAppID, false, nil, "")
+	ts.Require().NoError(err, "Failed to initiate registration flow")
+
+	rejected, err := common.CompleteFlow(step.ExecutionID,
+		map[string]string{"ouId": "nonexistent-ou-id-999"}, "action_ou", step.ChallengeToken)
+	ts.Require().NoError(err, "A nonexistent ID submission should still return a flow step")
+	ts.Require().NotNil(rejected.Error, "A nonexistent OU ID must be rejected")
+	ts.Equal(errCodeOUNotFound, rejected.Error.Code, "A nonexistent OU ID must be reported as not found")
 }

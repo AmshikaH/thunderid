@@ -1185,6 +1185,53 @@ describe('reactFlowTransformer', () => {
         expect(blockChildren.find((c) => c.type === ElementTypes.Action)?.eventType).toBe(ActionEventTypes.Submit);
       });
 
+      it('should serialize an OU_SELECT field as an input and promote the single button to SUBMIT', () => {
+        const components: Element[] = [
+          {
+            id: 'block-1',
+            type: 'BLOCK',
+            category: ElementCategories.Block,
+            components: [
+              {
+                id: 'ou-select-1',
+                type: ElementTypes.OuSelect,
+                category: ElementCategories.Field,
+                name: 'ouId',
+                required: true,
+              },
+              {
+                id: 'button-1',
+                type: ElementTypes.Action,
+                category: ElementCategories.Action,
+                eventType: ActionEventTypes.Trigger,
+                action: {onSuccess: 'next-node'},
+              },
+            ],
+          } as unknown as Element,
+        ];
+
+        const canvasData: ReactFlowCanvasData = {
+          nodes: [createNode('view-1', StepTypes.View, {x: 0, y: 0}, {components})],
+          edges: [createEdge('edge-1', 'view-1', 'next-node', 'button-1_NEXT')],
+        };
+
+        const result = transformReactFlow(canvasData);
+
+        expect(result.nodes[0].prompts?.[0].inputs).toEqual([
+          {
+            ref: 'ou-select-1',
+            type: ElementTypes.OuSelect,
+            identifier: 'ouId',
+            required: true,
+          },
+        ]);
+
+        const block = result.nodes[0].meta?.components?.[0] ?? {};
+        const blockChildren = block.components as Record<string, unknown>[];
+        expect(blockChildren.find((c) => c.type === ElementTypes.OuSelect)?.ref).toBe('ouId');
+        expect(blockChildren.find((c) => c.type === ElementTypes.Action)?.eventType).toBe(ActionEventTypes.Submit);
+      });
+
       it('should keep TRIGGER eventType for buttons inside a block without input fields', () => {
         const components: Element[] = [
           {

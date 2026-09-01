@@ -4,6 +4,18 @@
 import type {EmbeddedFlowComponent} from '@thunderid/react';
 
 /**
+ * One node of an organization unit hierarchy, as forwarded by the OU_SELECT input's `tree` field.
+ * The submitted selection is the node's `id`, not its `handle` — ids are globally unique, so no
+ * further disambiguation is needed even when handles repeat across different branches.
+ */
+export interface OrganizationUnitTreeNode {
+  id: string;
+  handle: string;
+  name: string;
+  children?: OrganizationUnitTreeNode[];
+}
+
+/**
  * Represents a normalized embedded flow component with all optional properties
  * that may appear in embedded flow components (fields, display elements, buttons, layout containers).
  *
@@ -18,6 +30,8 @@ export type FlowComponent = EmbeddedFlowComponent & {
   required?: boolean;
   /** Options for select fields */
   options?: unknown[];
+  /** Hierarchical options for OU_SELECT, when the executor forwards a full tree instead of a flat list */
+  tree?: OrganizationUnitTreeNode[];
   /** Hint or helper text */
   hint?: string;
   /** Visual variant (e.g., button style, text style) */

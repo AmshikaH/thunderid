@@ -13,6 +13,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/flow/common"
 	"github.com/thunder-id/thunderid/internal/flow/core"
 	"github.com/thunder-id/thunderid/internal/ou"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/system/security"
 )
@@ -146,14 +147,46 @@ func (e *ouResolverExecutor) resolveFromPrompt(ctx *providers.NodeContext,
 		)
 	}
 
-	// If the user already provided an OU selection, validate and accept it.
-	if selectedOUID, ok := ctx.UserInputs[ouIDKey]; ok && selectedOUID != "" {
-		// Validate that the selected OU belongs to the parent OU's subtree.
-		isDescendant, svcErr := e.ouService.IsParent(ctx.Context, parentOUID, selectedOUID)
+	// The user may submit either a literal OU ID (ouId) or a handle scoped to the default OU's
+	// children (ouHandle), but not both — each identifies the same selection unambiguously on its
+	// own, so accepting both at once would leave which one takes precedence undefined.
+	selectedID, hasID := ctx.UserInputs[ouIDKey]
+	hasID = hasID && selectedID != ""
+	selectedHandle, hasHandle := ctx.UserInputs[ouHandleKey]
+	hasHandle = hasHandle && selectedHandle != ""
+
+	if hasID && hasHandle {
+		logger.Debug(ctx.Context, "Both ouId and ouHandle were submitted; exactly one is expected")
+		execResp.Status = providers.ExecUserInputRequired
+		execResp.Inputs = e.promptInputs()
+		execResp.Error = &ErrInvalidOU
+		return execResp, nil
+	}
+
+	if hasID || hasHandle {
+		resolvedOUID := selectedID
+		if hasHandle {
+			handleOUID, svcErr := e.ouService.GetOrganizationUnitIDByHandle(ctx.Context, selectedHandle, &parentOUID)
+			if svcErr != nil {
+				if svcErr.Type == tidcommon.ClientErrorType {
+					logger.Debug(ctx.Context, "Selected OU handle could not be resolved",
+						log.String(ouHandleKey, selectedHandle))
+					execResp.Status = providers.ExecUserInputRequired
+					execResp.Inputs = e.promptInputs()
+					execResp.Error = &ErrInvalidOU
+					return execResp, nil
+				}
+				return nil, errors.New("failed to resolve organization unit by handle: " + svcErr.Error.DefaultValue)
+			}
+			resolvedOUID = handleOUID
+		}
+
+		// Validate that the resolved OU belongs to the parent OU's subtree.
+		isDescendant, svcErr := e.ouService.IsParent(ctx.Context, parentOUID, resolvedOUID)
 		if svcErr != nil {
 			if svcErr.Type == tidcommon.ClientErrorType {
 				execResp.Status = providers.ExecUserInputRequired
-				execResp.Inputs = e.GetDefaultInputs()
+				execResp.Inputs = e.promptInputs()
 				execResp.Error = &ErrInvalidOU
 				return execResp, nil
 			}
@@ -162,22 +195,22 @@ func (e *ouResolverExecutor) resolveFromPrompt(ctx *providers.NodeContext,
 		}
 		if !isDescendant {
 			logger.Debug(ctx.Context, "Selected OU is not a descendant of the parent OU",
-				log.String(ouIDKey, selectedOUID),
+				log.String(ouIDKey, resolvedOUID),
 				log.String("parentOUID", parentOUID))
 			execResp.Status = providers.ExecUserInputRequired
-			execResp.Inputs = e.GetDefaultInputs()
+			execResp.Inputs = e.promptInputs()
 			execResp.Error = &ErrOUNotValidForUserType
 			return execResp, nil
 		}
 
-		logger.Debug(ctx.Context, "OU selected by user", log.String(ouIDKey, selectedOUID))
-		execResp.RuntimeData[ouIDKey] = selectedOUID
+		logger.Debug(ctx.Context, "OU selected by user", log.String(ouIDKey, resolvedOUID))
+		execResp.RuntimeData[ouIDKey] = resolvedOUID
 		execResp.Status = providers.ExecComplete
 		return execResp, nil
 	}
 
-	// Check if the parent OU has child OUs.
-	children, svcErr := e.ouService.GetOrganizationUnitChildren(ctx.Context, parentOUID, 1, 0, nil)
+	// Check if the parent OU has child OUs, fetching enough of them to offer as selectable options.
+	children, svcErr := e.ouService.GetOrganizationUnitChildren(ctx.Context, parentOUID, serverconst.MaxPageSize, 0, nil)
 	if svcErr != nil {
 		return nil, errors.New("failed to check child organization units: " + svcErr.Error.DefaultValue)
 	}
@@ -195,9 +228,12 @@ func (e *ouResolverExecutor) resolveFromPrompt(ctx *providers.NodeContext,
 
 	execResp.Status = providers.ExecUserInputRequired
 
-	inputs := e.GetDefaultInputs()
+	inputs := e.promptInputs()
 	if len(inputs) > 0 {
 		input := inputs[0]
+		// Offer each child's handle as a selectable option under ouHandle; a caller that already
+		// knows the target OU's ID may submit it directly under ouId instead.
+		input.Options = organizationUnitHandles(children.OrganizationUnits)
 		execResp.Inputs = []providers.Input{input}
 		// Forward the root OU ID so the frontend knows where to start the tree picker.
 		execResp.AdditionalData[common.DataRootOUID] = parentOUID
@@ -207,8 +243,23 @@ func (e *ouResolverExecutor) resolveFromPrompt(ctx *providers.NodeContext,
 	return execResp, nil
 }
 
-// resolveFromPromptAll shows the full OU tree from root, allowing selection of any OU.
-// Unlike "prompt", this strategy does not depend on UserTypeResolver having run first.
+// promptInputs returns the default OU-selection input, keyed by ouHandleKey rather than ouIDKey:
+// the "prompt" strategy's frontend submits a child OU's handle, not its ID.
+func (e *ouResolverExecutor) promptInputs() []providers.Input {
+	defaults := e.GetDefaultInputs()
+	if len(defaults) == 0 {
+		return defaults
+	}
+	input := defaults[0]
+	input.Identifier = ouHandleKey
+	return []providers.Input{input}
+}
+
+// resolveFromPromptAll shows the full OU tree from root, allowing selection of any OU at any
+// depth. The tree is forwarded as providers.OrganizationUnitTreeNode data (see
+// buildOrganizationUnitTree) rather than a flat option list, so the frontend can render real
+// expand/collapse navigation. Unlike "prompt", this strategy does not depend on UserTypeResolver
+// having run first.
 func (e *ouResolverExecutor) resolveFromPromptAll(ctx *providers.NodeContext,
 	logger *log.Logger) (*providers.ExecutorResponse, error) {
 	execResp := &providers.ExecutorResponse{
@@ -217,11 +268,13 @@ func (e *ouResolverExecutor) resolveFromPromptAll(ctx *providers.NodeContext,
 		ForwardedData:  make(map[string]interface{}),
 	}
 
-	// If the user already provided an OU selection, validate and accept it.
-	if selectedOUID, ok := ctx.UserInputs[ouIDKey]; ok && selectedOUID != "" {
-		exists, svcErr := e.ouService.IsOrganizationUnitExists(ctx.Context, selectedOUID)
-		if svcErr != nil {
-			return nil, errors.New("failed to validate selected organization unit: " + svcErr.Error.DefaultValue)
+	// If the user already provided an OU selection, validate and accept it. The tree UI submits the
+	// clicked node's real ID directly (ids are globally unique, unlike handles which can repeat
+	// across branches), so there is no handle to resolve here — only an existence check.
+	if selectedValue, ok := ctx.UserInputs[ouIDKey]; ok && selectedValue != "" {
+		exists, existsErr := e.ouService.IsOrganizationUnitExists(ctx.Context, selectedValue)
+		if existsErr != nil {
+			return nil, errors.New("failed to validate selected organization unit: " + existsErr.Error.DefaultValue)
 		}
 		if !exists {
 			execResp.Status = providers.ExecUserInputRequired
@@ -230,24 +283,108 @@ func (e *ouResolverExecutor) resolveFromPromptAll(ctx *providers.NodeContext,
 			return execResp, nil
 		}
 
-		logger.Debug(ctx.Context, "OU selected by user", log.String(ouIDKey, selectedOUID))
-		execResp.RuntimeData[ouIDKey] = selectedOUID
+		logger.Debug(ctx.Context, "OU selected by user", log.String(ouIDKey, selectedValue))
+		execResp.RuntimeData[ouIDKey] = selectedValue
 		execResp.Status = providers.ExecComplete
 		return execResp, nil
 	}
 
 	// No selection yet — prompt the user with the full OU tree.
 	logger.Debug(ctx.Context, "Requesting OU selection from full tree")
+
+	roots, svcErr := fetchAllOrganizationUnits(
+		func(limit, offset int) (*providers.OrganizationUnitListResponse, *tidcommon.ServiceError) {
+			return e.ouService.GetOrganizationUnitList(ctx.Context, limit, offset, nil)
+		})
+	if svcErr != nil {
+		return nil, errors.New("failed to list organization units: " + svcErr.Error.DefaultValue)
+	}
+
+	tree, err := e.buildOrganizationUnitTree(ctx, roots)
+	if err != nil {
+		return nil, err
+	}
+
 	execResp.Status = providers.ExecUserInputRequired
 
 	inputs := e.GetDefaultInputs()
 	if len(inputs) > 0 {
 		input := inputs[0]
+		// Offer the full OU hierarchy as a tree; the user's selection is submitted back as the
+		// chosen node's ID (not its handle), validated above by a plain existence check.
+		input.Tree = tree
 		execResp.Inputs = []providers.Input{input}
 		execResp.ForwardedData[common.ForwardedDataKeyInputs] = execResp.Inputs
 	}
 
 	return execResp, nil
+}
+
+// organizationUnitHandles extracts the handle of each organization unit, in order, for use as a
+// selectable input's options.
+func organizationUnitHandles(units []providers.OrganizationUnitBasic) []string {
+	handles := make([]string, 0, len(units))
+	for _, unit := range units {
+		handles = append(handles, unit.Handle)
+	}
+	return handles
+}
+
+// buildOrganizationUnitTree recursively descends from the given organization units, fetching each
+// one's children, to build the full hierarchy as a set of tree nodes. Depth-first, paging through
+// every GetOrganizationUnitChildren result so a parent with more children than MaxPageSize is never
+// silently truncated.
+func (e *ouResolverExecutor) buildOrganizationUnitTree(
+	ctx *providers.NodeContext, units []providers.OrganizationUnitBasic,
+) ([]providers.OrganizationUnitTreeNode, error) {
+	nodes := make([]providers.OrganizationUnitTreeNode, 0, len(units))
+	for _, unit := range units {
+		children, svcErr := fetchAllOrganizationUnits(
+			func(limit, offset int) (*providers.OrganizationUnitListResponse, *tidcommon.ServiceError) {
+				return e.ouService.GetOrganizationUnitChildren(ctx.Context, unit.ID, limit, offset, nil)
+			})
+		if svcErr != nil {
+			return nil, errors.New("failed to list child organization units: " + svcErr.Error.DefaultValue)
+		}
+
+		var childNodes []providers.OrganizationUnitTreeNode
+		if len(children) > 0 {
+			var err error
+			childNodes, err = e.buildOrganizationUnitTree(ctx, children)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		nodes = append(nodes, providers.OrganizationUnitTreeNode{
+			ID:       unit.ID,
+			Handle:   unit.Handle,
+			Name:     unit.Name,
+			Children: childNodes,
+		})
+	}
+	return nodes, nil
+}
+
+// fetchAllOrganizationUnits pages through fetchPage with serverconst.MaxPageSize until every result
+// has been collected, so a collection larger than one page is never silently truncated.
+func fetchAllOrganizationUnits(
+	fetchPage func(limit, offset int) (*providers.OrganizationUnitListResponse, *tidcommon.ServiceError),
+) ([]providers.OrganizationUnitBasic, *tidcommon.ServiceError) {
+	var all []providers.OrganizationUnitBasic
+	offset := 0
+	for {
+		page, svcErr := fetchPage(serverconst.MaxPageSize, offset)
+		if svcErr != nil {
+			return nil, svcErr
+		}
+		all = append(all, page.OrganizationUnits...)
+		offset += len(page.OrganizationUnits)
+		if len(page.OrganizationUnits) == 0 || offset >= page.TotalResults {
+			break
+		}
+	}
+	return all, nil
 }
 
 // getResolveFrom retrieves the resolveFrom strategy from the node properties.

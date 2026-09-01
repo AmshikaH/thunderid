@@ -507,13 +507,16 @@ func (n *promptNode) enrichInputsFromForwardedData(ctx *providers.NodeContext, n
 				n.logger.Debug(ctx.Context, "Updated input type to password from ForwardedData",
 					log.String("identifier", fwdInput.Identifier))
 			}
-			if fwdInput.Type == providers.InputTypeSelect &&
-				nodeResp.Inputs[idx].Type == providers.InputTypeSelect &&
-				len(fwdInput.Options) > 0 {
+			if len(fwdInput.Options) > 0 {
 				nodeResp.Inputs[idx].Options = fwdInput.Options
 				n.logger.Debug(ctx.Context, "Enriched input with options from ForwardedData",
 					log.String("identifier", fwdInput.Identifier),
 					log.Int("optionsCount", len(fwdInput.Options)))
+			}
+			if len(fwdInput.Tree) > 0 {
+				nodeResp.Inputs[idx].Tree = fwdInput.Tree
+				n.logger.Debug(ctx.Context, "Enriched input with tree from ForwardedData",
+					log.String("identifier", fwdInput.Identifier))
 			}
 			continue
 		}
@@ -759,7 +762,9 @@ func (n *promptNode) buildSyntheticComponentList(
 		if inMeta {
 			needsRequired := input.Required && comp["required"] != true
 			needsPassword := input.Type == providers.InputTypePassword && comp["type"] != providers.InputTypePassword
-			if needsRequired || needsPassword {
+			needsOptions := len(input.Options) > 0
+			needsTree := len(input.Tree) > 0
+			if needsRequired || needsPassword || needsOptions || needsTree {
 				cloned := make(map[string]interface{}, len(comp))
 				for k, v := range comp {
 					cloned[k] = v
@@ -769,6 +774,12 @@ func (n *promptNode) buildSyntheticComponentList(
 				}
 				if needsPassword {
 					cloned["type"] = providers.InputTypePassword
+				}
+				if needsOptions {
+					cloned["options"] = input.Options
+				}
+				if needsTree {
+					cloned["tree"] = input.Tree
 				}
 				promotions[ref] = cloned
 			}
