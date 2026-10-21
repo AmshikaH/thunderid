@@ -229,7 +229,8 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	ouAuthzService.SetPermissionResolver(
 		role.NewEffectivePermissionResolver(roleService, groupService, entityService))
 
-	idpService, err := idp.Initialize(cacheManager, entityTypeService, roleService, groupService, resourceService)
+	idpService, err := idp.Initialize(
+		cacheManager, entityTypeService, roleService, groupService, resourceService, ouService)
 	fatalOnError(ctx, logger, err, "Failed to initialize IDPService")
 
 	// Notification: only the sender-management (CRUD) service and the notification section handler are
@@ -247,7 +248,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	// notification-sender management services.
 	connectionExporter, err := connection.Initialize(
 		mux, mcpServer, idpService, notifSenderMgtSvc, resourceService, authZENPDPService, httpConnectionService,
-		valueCapture)
+		ouService, valueCapture)
 	fatalOnError(ctx, logger, err, "Failed to initialize connection declarative resources")
 	exporters = append(exporters, connectionExporter)
 
