@@ -1,7 +1,8 @@
-// Copyright 2025 The ThunderID Authors
+// Copyright 2025-2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
 import {DocumentTitle, FullScreenCreationWizardLayout} from '@thunderid/components';
+import {useHasMultipleOUs} from '@thunderid/configure-organization-units';
 import {useLogger} from '@thunderid/logger/react';
 import {getErrorMessage} from '@thunderid/utils';
 import {Alert, Box, Button, CircularProgress} from '@wso2/oxygen-ui';
@@ -12,6 +13,7 @@ import {useNavigate} from 'react-router';
 import useCreateFlow from '../api/useCreateFlow';
 import ConfigureFlowName from '../components/create-flow/ConfigureFlowName';
 import type {ConfigureFlowNameValue} from '../components/create-flow/ConfigureFlowName';
+import FlowOrganizationUnitStep from '../components/create-flow/FlowOrganizationUnitStep';
 import SelectFlowTemplate from '../components/create-flow/SelectFlowTemplate';
 import SelectFlowType from '../components/create-flow/SelectFlowType';
 import useFlowRoutes from '../hooks/useFlowRoutes';
@@ -42,6 +44,15 @@ export default function FlowCreatePage(): JSX.Element {
   const [nameValue, setNameValue] = useState<ConfigureFlowNameValue>({name: '', handle: ''});
   const [nameReady, setNameReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedOuId, setSelectedOuId] = useState('');
+  const [ouConfirmed, setOuConfirmed] = useState(false);
+  const [ouConfirmedOnce, setOuConfirmedOnce] = useState(false);
+
+  // The organization unit is asked for first, but only when there is a choice to make. A single-unit deployment
+  // uses its one unit without showing the step.
+  const {hasMultipleOUs, isLoading: isOuLoading, ouList} = useHasMultipleOUs();
+  const ouId: string = hasMultipleOUs ? selectedOuId : (ouList[0]?.id ?? '');
+  const showOuStep: boolean = isOuLoading || (hasMultipleOUs && !ouConfirmed);
 
   const steps: Record<FlowCreateStep, {label: string; order: number}> = useMemo(
     () => ({
@@ -87,10 +98,15 @@ export default function FlowCreatePage(): JSX.Element {
     }
     if (currentStep === FlowCreateStep.CONFIGURE) {
       if (!selectedType || !selectedTemplate) return;
+      if (!ouId) {
+        setError(t('flows:create.organizationUnit.required', 'Organization unit is required'));
+        return;
+      }
       const flowRequest = {
         name: nameValue.name,
         handle: nameValue.handle,
         flowType: selectedType,
+        ouId,
         nodes: selectedTemplate.config.nodes,
       };
       setError(null);
@@ -173,16 +189,45 @@ export default function FlowCreatePage(): JSX.Element {
     return null;
   };
 
+  if (showOuStep) {
+    return (
+      <FlowOrganizationUnitStep
+        isLoading={isOuLoading}
+        value={selectedOuId}
+        onChange={(value) => {
+          clearCreateError();
+          setSelectedOuId(value);
+        }}
+        onBack={ouConfirmedOnce ? () => setOuConfirmed(true) : handleClose}
+        onContinue={() => {
+          setOuConfirmed(true);
+          setOuConfirmedOnce(true);
+        }}
+      />
+    );
+  }
+
   return (
     <FullScreenCreationWizardLayout
       onClose={handleClose}
       progress={getStepProgress()}
       contentMaxWidth={currentStep === FlowCreateStep.TEMPLATE ? false : 800}
-      breadcrumbItems={getBreadcrumbSteps().map((step, index, array) => ({
-        key: step,
-        label: steps[step].label,
-        onClick: index < array.length - 1 ? () => setCurrentStep(step) : undefined,
-      }))}
+      breadcrumbItems={[
+        ...(hasMultipleOUs
+          ? [
+              {
+                key: 'organizationUnit',
+                label: t('flows:create.steps.organizationUnit', 'Organization unit'),
+                onClick: () => setOuConfirmed(false),
+              },
+            ]
+          : []),
+        ...getBreadcrumbSteps().map((step, index, array) => ({
+          key: step,
+          label: steps[step].label,
+          onClick: index < array.length - 1 ? () => setCurrentStep(step) : undefined,
+        })),
+      ]}
       footer={
         <Box
           sx={{

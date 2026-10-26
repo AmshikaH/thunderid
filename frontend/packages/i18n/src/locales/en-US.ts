@@ -4249,9 +4249,14 @@ const translations = {
     'delete.usages.more': '+{{count}} more',
 
     // Create flow wizard
+    'create.steps.organizationUnit': 'Organization unit',
     'create.steps.type': 'Flow type',
     'create.steps.template': 'Template',
     'create.steps.configure': 'Details',
+    'create.organizationUnit.title': 'Where should this flow belong?',
+    'create.organizationUnit.subtitle':
+      "Choose the organization unit that will own this flow. You can't change this once created.",
+    'create.organizationUnit.required': 'Organization unit is required',
     'create.configure.title': "Let's collect some details about your flow",
     'create.configure.name.label': 'Flow name',
     'create.configure.name.placeholder': 'e.g. Customer sign-in',
@@ -5050,6 +5055,9 @@ const translations = {
     'errors.FLM-1025': 'A CALL node references a flow that does not exist.',
     'errors.FLM-1026':
       'This update was rejected because a resource that references this flow would be left in an inconsistent state.',
+    'errors.FLM-1027': 'The organization unit for this flow does not exist.',
+    'errors.FLM-1028': 'The organization unit of a flow cannot be changed once the flow is created.',
+    'errors.FLM-1029': 'A flow needs an organization unit.',
   },
 
   // ============================================================================

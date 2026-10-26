@@ -992,6 +992,65 @@ func (_c *FlowMgtServiceInterfaceMock_ResolveEffectiveFlowID_Call) RunAndReturn(
 	return _c
 }
 
+// ResolveFlowOU provides a mock function for the type FlowMgtServiceInterfaceMock
+func (_mock *FlowMgtServiceInterfaceMock) ResolveFlowOU(ctx context.Context, flowDef *flowmgt.FlowDefinition) *common.ServiceError {
+	ret := _mock.Called(ctx, flowDef)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResolveFlowOU")
+	}
+
+	var r0 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *flowmgt.FlowDefinition) *common.ServiceError); ok {
+		r0 = returnFunc(ctx, flowDef)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*common.ServiceError)
+		}
+	}
+	return r0
+}
+
+// FlowMgtServiceInterfaceMock_ResolveFlowOU_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolveFlowOU'
+type FlowMgtServiceInterfaceMock_ResolveFlowOU_Call struct {
+	*mock.Call
+}
+
+// ResolveFlowOU is a helper method to define mock.On call
+//   - ctx context.Context
+//   - flowDef *flowmgt.FlowDefinition
+func (_e *FlowMgtServiceInterfaceMock_Expecter) ResolveFlowOU(ctx any, flowDef any) *FlowMgtServiceInterfaceMock_ResolveFlowOU_Call {
+	return &FlowMgtServiceInterfaceMock_ResolveFlowOU_Call{Call: _e.mock.On("ResolveFlowOU", ctx, flowDef)}
+}
+
+func (_c *FlowMgtServiceInterfaceMock_ResolveFlowOU_Call) Run(run func(ctx context.Context, flowDef *flowmgt.FlowDefinition)) *FlowMgtServiceInterfaceMock_ResolveFlowOU_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *flowmgt.FlowDefinition
+		if args[1] != nil {
+			arg1 = args[1].(*flowmgt.FlowDefinition)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *FlowMgtServiceInterfaceMock_ResolveFlowOU_Call) Return(serviceError *common.ServiceError) *FlowMgtServiceInterfaceMock_ResolveFlowOU_Call {
+	_c.Call.Return(serviceError)
+	return _c
+}
+
+func (_c *FlowMgtServiceInterfaceMock_ResolveFlowOU_Call) RunAndReturn(run func(ctx context.Context, flowDef *flowmgt.FlowDefinition) *common.ServiceError) *FlowMgtServiceInterfaceMock_ResolveFlowOU_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RestoreFlowVersion provides a mock function for the type FlowMgtServiceInterfaceMock
 func (_mock *FlowMgtServiceInterfaceMock) RestoreFlowVersion(ctx context.Context, flowID string, version int) (*providers.CompleteFlowDefinition, *common.ServiceError) {
 	ret := _mock.Called(ctx, flowID, version)

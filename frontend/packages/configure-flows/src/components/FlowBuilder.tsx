@@ -370,6 +370,7 @@ function FlowBuilder() {
     flowName,
     flowHandle,
     flowType,
+    ouId: existingFlowData?.ouId,
     showError,
     showSuccess,
     setOpenValidationPanel,

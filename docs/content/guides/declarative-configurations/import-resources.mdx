@@ -201,9 +201,12 @@ The following handle fields are supported:
 | Agent | `registrationFlowHandle` | `registrationFlowId` |
 | User type | `ouHandle` | `ouId` |
 | Connection | `ouHandle` | `ouId` |
+| Flow | `ouHandle` | `ouId` |
 | Notification template | `ouHandle` | `ouId` |
 
 If you provide both a handle field and the corresponding ID field, the ID takes precedence and the handle is ignored.
+
+A `flow` document must carry `ouId` or `ouHandle`, because every flow belongs to exactly one organization unit. A document with neither fails to import, and a dry run reports the same failure. The same rule applies to flow files loaded at startup: the server fails to load a file with no owner. For the details, see [Organization Unit Ownership](../flows/flow-concepts#organization-unit-ownership).
 
 Updating an existing application or agent with a document that sets only a handle field re-resolves it and keeps the resolved ID.
 

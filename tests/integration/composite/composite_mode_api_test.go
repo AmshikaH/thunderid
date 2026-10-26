@@ -589,6 +589,26 @@ func (suite *CompositeModeSuite) TestFlowDeclarativeVisibility() {
 	suite.True(isReadOnly, "declarative flow should be marked as read-only in merged collection")
 }
 
+// TestDeclarativeFlowOwnerResolvedFromOUHandle verifies a declarative flow that names its owner by ouHandle
+// (decl-flow-1 gives ouHandle: decl-ou-1) is owned by that organization unit.
+func (suite *CompositeModeSuite) TestDeclarativeFlowOwnerResolvedFromOUHandle() {
+	client := testutils.GetHTTPClient()
+	read := func(path string) map[string]interface{} {
+		resp, err := client.Get(testutils.TestServerURL + path)
+		suite.Require().NoError(err)
+		defer resp.Body.Close()
+		suite.Require().Equal(http.StatusOK, resp.StatusCode)
+		var body map[string]interface{}
+		suite.Require().NoError(json.NewDecoder(resp.Body).Decode(&body))
+		return body
+	}
+
+	ouID, ok := read("/organization-units/decl-ou-1")["id"].(string)
+	suite.Require().True(ok, "the declarative organization unit should carry an id")
+
+	suite.Equal(ouID, read("/flows/decl-flow-1")["ouId"], "the flow should be owned by the unit its handle names")
+}
+
 func (suite *CompositeModeSuite) TestEntityTypeDeclarativeVisibility() {
 	client := testutils.GetHTTPClient()
 	resp, err := client.Get(fmt.Sprintf("%s/user-types/decl-schema-1", testutils.TestServerURL))
@@ -897,10 +917,13 @@ func (suite *CompositeModeSuite) TestFlowCreate() {
 	timestamp := time.Now().Unix()
 	flowID := fmt.Sprintf("runtime-flow-%d", timestamp)
 
+	defaultOUID, err := testutils.DefaultOUID()
+	suite.Require().NoError(err)
 	flow := map[string]interface{}{
 		"handle":   flowID,
 		"name":     "Test Runtime Flow",
 		"flowType": "AUTHENTICATION",
+		"ouId":     defaultOUID,
 		"nodes": []map[string]interface{}{
 			{"id": "start", "type": "START", "onSuccess": "prompt_credentials"},
 			{

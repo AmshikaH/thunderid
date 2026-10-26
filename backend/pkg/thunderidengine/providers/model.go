@@ -210,6 +210,8 @@ type CompleteFlowDefinition struct {
 	CreatedAt     string                  `json:"createdAt,omitempty"     yaml:"createdAt"              jsonschema:"Timestamp when the flow was created."`
 	UpdatedAt     string                  `json:"updatedAt,omitempty"     yaml:"updatedAt"              jsonschema:"Timestamp when the flow was last updated."`
 	IsReadOnly    bool                    `json:"isReadOnly"              yaml:"isReadOnly"             jsonschema:"Whether the flow is immutable (declarative)."`
+	OUID          string                  `json:"ouId"                    yaml:"ouId,omitempty"         jsonschema:"Organization unit that owns this flow."`
+	OUHandle      string                  `json:"-"                       yaml:"ouHandle,omitempty"`
 }
 
 // InterceptorDefinition describes how an interceptor is declared in the flow definition.

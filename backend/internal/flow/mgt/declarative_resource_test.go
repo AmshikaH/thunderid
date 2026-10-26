@@ -1,4 +1,4 @@
-// Copyright 2025 The ThunderID Authors
+// Copyright 2025-2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package flowmgt
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gopkg.in/yaml.v3"
 
+	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
 	"github.com/thunder-id/thunderid/internal/system/log"
 )
@@ -26,11 +27,13 @@ import (
 type DeclarativeResourceTestSuite struct {
 	suite.Suite
 	mockValidator *FlowValidatorInterfaceMock
+	mockOU        *ouProviderMock
 }
 
 func (s *DeclarativeResourceTestSuite) SetupTest() {
 	_ = log.GetLogger()
 	s.mockValidator = NewFlowValidatorInterfaceMock(s.T())
+	s.mockOU = newOuProviderMock(s.T())
 }
 
 // TestParseToCompleteFlowDefinition tests parsing YAML to providers.CompleteFlowDefinition
@@ -79,13 +82,77 @@ func (s *DeclarativeResourceTestSuite) TestValidateFlowGraphWrapper_ValidFlow() 
 		Name:     "Basic Auth",
 		FlowType: "AUTHENTICATION",
 		Nodes:    validFlowNodes(),
+		OUID:     "ou-1",
+	}
+
+	s.mockValidator.EXPECT().ValidateFlowDefinition(mock.Anything, mock.Anything).Return(nil)
+	s.mockOU.EXPECT().IsOrganizationUnitExists(mock.Anything, "ou-1").Return(true, nil)
+
+	validate := validateFlowGraphWrapper(s.mockValidator, newOUResolver(s.mockOU))
+	err := validate(flow)
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "ou-1", flow.OUID)
+}
+
+// TestValidateFlowGraphWrapper_ResolvesOUHandle tests that an owner named by handle is stored as its id
+func (s *DeclarativeResourceTestSuite) TestValidateFlowGraphWrapper_ResolvesOUHandle() {
+	flow := &providers.CompleteFlowDefinition{
+		ID: "flow-001", Handle: "basic-auth", Name: "Basic Auth", FlowType: "AUTHENTICATION",
+		Nodes: validFlowNodes(), OUHandle: "default",
+	}
+
+	s.mockValidator.EXPECT().ValidateFlowDefinition(mock.Anything, mock.Anything).Return(nil)
+	s.mockOU.EXPECT().GetOrganizationUnitByPath(mock.Anything, "default").
+		Return(ou.OrganizationUnit{ID: "ou-1"}, nil)
+
+	err := validateFlowGraphWrapper(s.mockValidator, newOUResolver(s.mockOU))(flow)
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "ou-1", flow.OUID)
+	assert.Empty(s.T(), flow.OUHandle)
+}
+
+// TestValidateFlowGraphWrapper_IDWinsOverHandle tests that the id is used when both are given
+func (s *DeclarativeResourceTestSuite) TestValidateFlowGraphWrapper_IDWinsOverHandle() {
+	flow := &providers.CompleteFlowDefinition{
+		ID: "flow-001", Handle: "basic-auth", Name: "Basic Auth", FlowType: "AUTHENTICATION",
+		Nodes: validFlowNodes(), OUID: "ou-1", OUHandle: "other",
+	}
+
+	s.mockValidator.EXPECT().ValidateFlowDefinition(mock.Anything, mock.Anything).Return(nil)
+	s.mockOU.EXPECT().IsOrganizationUnitExists(mock.Anything, "ou-1").Return(true, nil)
+
+	err := validateFlowGraphWrapper(s.mockValidator, newOUResolver(s.mockOU))(flow)
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "ou-1", flow.OUID)
+}
+
+// TestValidateFlowGraphWrapper_MissingOU tests that a flow without an owner is refused
+func (s *DeclarativeResourceTestSuite) TestValidateFlowGraphWrapper_MissingOU() {
+	flow := &providers.CompleteFlowDefinition{
+		ID: "flow-001", Handle: "basic-auth", Name: "Basic Auth", FlowType: "AUTHENTICATION", Nodes: validFlowNodes(),
 	}
 
 	s.mockValidator.EXPECT().ValidateFlowDefinition(mock.Anything, mock.Anything).Return(nil)
 
-	validate := validateFlowGraphWrapper(s.mockValidator)
-	err := validate(flow)
-	assert.NoError(s.T(), err)
+	err := validateFlowGraphWrapper(s.mockValidator, newOUResolver(s.mockOU))(flow)
+	require.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "needs an organization unit")
+}
+
+// TestValidateFlowGraphWrapper_UnknownOU tests that an owner that does not exist is refused
+func (s *DeclarativeResourceTestSuite) TestValidateFlowGraphWrapper_UnknownOU() {
+	flow := &providers.CompleteFlowDefinition{
+		ID: "flow-001", Handle: "basic-auth", Name: "Basic Auth", FlowType: "AUTHENTICATION",
+		Nodes: validFlowNodes(), OUHandle: "nowhere",
+	}
+
+	s.mockValidator.EXPECT().ValidateFlowDefinition(mock.Anything, mock.Anything).Return(nil)
+	s.mockOU.EXPECT().GetOrganizationUnitByPath(mock.Anything, "nowhere").
+		Return(ou.OrganizationUnit{}, &ou.ErrorOrganizationUnitNotFound)
+
+	err := validateFlowGraphWrapper(s.mockValidator, newOUResolver(s.mockOU))(flow)
+	require.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "could not be resolved")
 }
 
 // TestValidateFlowGraphWrapper_MissingHandle tests validation with missing handle
@@ -106,7 +173,7 @@ func (s *DeclarativeResourceTestSuite) TestValidateFlowGraphWrapper_MissingHandl
 			Code: "VALIDATION_ERROR", Error: tidcommon.I18nMessage{DefaultValue: "missing handle"},
 		})
 
-	validate := validateFlowGraphWrapper(s.mockValidator)
+	validate := validateFlowGraphWrapper(s.mockValidator, newOUResolver(s.mockOU))
 	err := validate(flow)
 	assert.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "validation failed")
@@ -114,7 +181,7 @@ func (s *DeclarativeResourceTestSuite) TestValidateFlowGraphWrapper_MissingHandl
 
 // TestValidateFlowGraphWrapper_InvalidType tests validation with wrong type
 func (s *DeclarativeResourceTestSuite) TestValidateFlowGraphWrapper_InvalidType() {
-	validate := validateFlowGraphWrapper(s.mockValidator)
+	validate := validateFlowGraphWrapper(s.mockValidator, newOUResolver(s.mockOU))
 	err := validate("not a flow definition")
 	assert.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "invalid type")
@@ -138,7 +205,7 @@ func (s *DeclarativeResourceTestSuite) TestValidateFlowGraphWrapper_Insufficient
 			Code: "VALIDATION_ERROR", Error: tidcommon.I18nMessage{DefaultValue: "insufficient nodes"},
 		})
 
-	validate := validateFlowGraphWrapper(s.mockValidator)
+	validate := validateFlowGraphWrapper(s.mockValidator, newOUResolver(s.mockOU))
 	err := validate(flow)
 	assert.Error(s.T(), err)
 }
@@ -606,7 +673,7 @@ func (s *DeclarativeResourceTestSuite) TestLoadDeclarativeResources_InvalidStore
 	// Create a mock store that's not a file-based store
 	mockStore := &flowStoreInterfaceMock{}
 
-	err := loadDeclarativeResources(mockStore, s.mockValidator)
+	err := loadDeclarativeResources(mockStore, s.mockValidator, s.mockOU)
 	assert.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "failed to assert flowStore to *fileBasedStore")
 }

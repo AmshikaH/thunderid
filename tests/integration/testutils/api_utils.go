@@ -271,6 +271,29 @@ func RestoreAgentType(snapshot *AgentTypeSnapshot) error {
 	return nil
 }
 
+var (
+	defaultOUIDMu    sync.Mutex
+	defaultOUIDCache string
+)
+
+// DefaultOUID returns the organization unit that owns the flows the shared helpers create when the caller names
+// none. Every flow needs an owning organization unit, so these helpers use the long-lived bootstrap `default` one,
+// which outlives every suite and never blocks a suite's own organization unit clean-up. The id is looked up once
+// per process.
+func DefaultOUID() (string, error) {
+	defaultOUIDMu.Lock()
+	defer defaultOUIDMu.Unlock()
+	if defaultOUIDCache != "" {
+		return defaultOUIDCache, nil
+	}
+	ouID, err := FindBootstrapOUID()
+	if err != nil {
+		return "", err
+	}
+	defaultOUIDCache = ouID
+	return ouID, nil
+}
+
 // FindBootstrapOUID resolves the long-lived `default` organization unit seeded at bootstrap.
 func FindBootstrapOUID() (string, error) {
 	req, err := http.NewRequest("GET", TestServerURL+"/organization-units?limit=100", nil)
@@ -2272,6 +2295,13 @@ func deleteURL(url string) error {
 
 // CreateFlow creates a flow via API and returns the flow ID
 func CreateFlow(flowDefinition Flow) (string, error) {
+	if flowDefinition.OUID == "" {
+		ouID, err := DefaultOUID()
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve the flow organization unit: %w", err)
+		}
+		flowDefinition.OUID = ouID
+	}
 	flowJSON, err := json.Marshal(flowDefinition)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal flow definition: %w", err)

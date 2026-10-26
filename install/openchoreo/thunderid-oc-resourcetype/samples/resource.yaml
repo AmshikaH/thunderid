@@ -270,6 +270,7 @@ spec:
       # File: Default_Authentication_Flow.yaml
       resource_type: flow
       id: 01900000-0000-7000-8000-000000000061
+      ouId: 01900000-0000-7000-8000-000000000001
       handle: default-flow
       name: Default Authentication Flow
       flowType: AUTHENTICATION
@@ -385,6 +386,7 @@ spec:
       # File: Default_CIBA_Email_Notification_Flow.yaml
       resource_type: flow
       id: 01900000-0000-7000-8000-000000000062
+      ouId: 01900000-0000-7000-8000-000000000001
       handle: default-ciba-email-flow
       name: Default CIBA Email Notification Flow
       flowType: AUTHENTICATION
@@ -486,6 +488,7 @@ spec:
       # File: Console_App_Authentication_Flow.yaml
       resource_type: flow
       id: 01900000-0000-7000-8000-000000000068
+      ouId: 01900000-0000-7000-8000-000000000001
       handle: console-app-flow
       name: Console App Authentication Flow
       flowType: AUTHENTICATION
@@ -565,6 +568,7 @@ spec:
       # File: Console_App_Recovery_Flow.yaml
       resource_type: flow
       id: 01900000-0000-7000-8000-000000000070
+      ouId: 01900000-0000-7000-8000-000000000001
       handle: console-app-flow
       name: Console App Recovery Flow
       flowType: RECOVERY
@@ -678,6 +682,7 @@ spec:
       # File: Default_Recovery_Flow.yaml
       resource_type: flow
       id: 01900000-0000-7000-8000-000000000067
+      ouId: 01900000-0000-7000-8000-000000000001
       handle: default-flow
       name: Default Recovery Flow
       flowType: RECOVERY
@@ -882,6 +887,7 @@ spec:
       # File: Default_Registration_Flow.yaml
       resource_type: flow
       id: 01900000-0000-7000-8000-000000000064
+      ouId: 01900000-0000-7000-8000-000000000001
       handle: default-flow
       name: Default Registration Flow
       flowType: REGISTRATION
@@ -1026,6 +1032,7 @@ spec:
       # File: Console_App_Registration_Flow.yaml
       resource_type: flow
       id: 01900000-0000-7000-8000-000000000069
+      ouId: 01900000-0000-7000-8000-000000000001
       handle: console-app-flow
       name: Console App Registration Flow
       flowType: REGISTRATION
@@ -1127,6 +1134,7 @@ spec:
       # File: Default_Sign_Out_Flow.yaml
       resource_type: flow
       id: 01900000-0000-7000-8000-00000000006a
+      ouId: 01900000-0000-7000-8000-000000000001
       handle: default-flow
       name: Default Sign Out Flow
       flowType: SIGNOUT
@@ -1171,6 +1179,7 @@ spec:
       # File: Default_User_Onboarding_Flow.yaml
       resource_type: flow
       id: 01900000-0000-7000-8000-000000000066
+      ouId: 01900000-0000-7000-8000-000000000001
       handle: default-flow
       name: Default User Onboarding Flow
       flowType: USER_ONBOARDING

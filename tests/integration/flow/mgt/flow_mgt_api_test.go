@@ -162,6 +162,18 @@ func generateUniqueHandle(base string) string {
 	return fmt.Sprintf("%s-%d-%d", base, timestamp, random)
 }
 
+// withOwner returns the flow with the default organization unit as its owner when it names none.
+func withOwner(flow FlowDefinition) FlowDefinition {
+	if flow.OUID == "" {
+		ouID, err := testutils.DefaultOUID()
+		if err != nil {
+			panic(fmt.Sprintf("failed to resolve the default organization unit: %v", err))
+		}
+		flow.OUID = ouID
+	}
+	return flow
+}
+
 // cloneFlowWithUniqueHandle creates a deep copy of a flow definition with a unique handle
 func cloneFlowWithUniqueHandle(flow FlowDefinition) FlowDefinition {
 	// Marshal and unmarshal to create a deep copy
@@ -875,7 +887,7 @@ func (suite *FlowMgtAPITestSuite) TestRestoreFlowVersion_FlowNotFound() {
 // Helper methods for API interactions
 
 func (suite *FlowMgtAPITestSuite) createFlow(flowDef FlowDefinition) *CompleteFlowDefinition {
-	body, _ := json.Marshal(flowDef)
+	body, _ := json.Marshal(withOwner(flowDef))
 	req, _ := http.NewRequest(http.MethodPost, testServerURL+flowsEndpoint, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -896,7 +908,7 @@ func (suite *FlowMgtAPITestSuite) createFlow(flowDef FlowDefinition) *CompleteFl
 
 func (suite *FlowMgtAPITestSuite) createFlowExpectError(
 	flowDef FlowDefinition, expectedStatus int, expectedCode string) {
-	body, _ := json.Marshal(flowDef)
+	body, _ := json.Marshal(withOwner(flowDef))
 	req, _ := http.NewRequest(http.MethodPost, testServerURL+flowsEndpoint, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 

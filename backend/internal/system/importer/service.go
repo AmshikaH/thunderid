@@ -108,6 +108,7 @@ type flowAdapter interface {
 	UpdateFlow(ctx context.Context, flowID string, flowDef *flowmgt.FlowDefinition) (*providers.CompleteFlowDefinition,
 		*tidcommon.ServiceError)
 	DeleteFlow(ctx context.Context, flowID string) *tidcommon.ServiceError
+	ResolveFlowOU(ctx context.Context, flowDef *flowmgt.FlowDefinition) *tidcommon.ServiceError
 }
 
 type ouAdapter interface {
@@ -925,12 +926,24 @@ func (s *importService) importFlow(
 		Name:     req.Name,
 		FlowType: req.FlowType,
 		Nodes:    req.Nodes,
+		OUID:     req.OUID,
+		OUHandle: req.OUHandle,
+	}
+
+	if svcErr := s.flowService.ResolveFlowOU(ctx, flowDef); svcErr != nil {
+		return serviceErrorOutcome(resourceTypeFlow, req.ID, req.Name, operationCreate, svcErr)
 	}
 
 	if dryRun {
 		if options.IsUpsertEnabled() && req.ID != "" {
-			_, svcErr := s.flowService.GetFlow(ctx, req.ID)
+			existing, svcErr := s.flowService.GetFlow(ctx, req.ID)
 			if svcErr == nil {
+				// The owner cannot change, so an update that names another one is refused here as the real apply
+				// would refuse it.
+				if existing != nil && existing.OUID != flowDef.OUID {
+					return serviceErrorOutcome(resourceTypeFlow, req.ID, req.Name, operationUpdate,
+						&flowmgt.ErrorOUUpdateNotAllowed)
+				}
 				return successOutcome(resourceTypeFlow, req.ID, req.Name, operationUpdate)
 			}
 
@@ -940,6 +953,10 @@ func (s *importService) importFlow(
 
 			existingByHandle, handleErr := s.flowService.GetFlowByHandle(ctx, req.Handle, req.FlowType)
 			if handleErr == nil {
+				if existingByHandle.OUID != flowDef.OUID {
+					return serviceErrorOutcome(resourceTypeFlow, existingByHandle.ID, req.Name, operationUpdate,
+						&flowmgt.ErrorOUUpdateNotAllowed)
+				}
 				return successOutcome(resourceTypeFlow, existingByHandle.ID, req.Name, operationUpdate)
 			}
 

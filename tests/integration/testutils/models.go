@@ -447,6 +447,7 @@ type Flow struct {
 	Handle       string      `json:"handle"`
 	Interceptors interface{} `json:"interceptors,omitempty"`
 	Nodes        interface{} `json:"nodes"`
+	OUID         string      `json:"ouId,omitempty"`
 }
 
 // NotificationSender represents a notification sender in the system

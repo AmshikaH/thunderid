@@ -356,10 +356,11 @@ func (f *fakeSenderService) UpdateSender(
 }
 
 type fakeFlowService struct {
-	created []*flowmgt.FlowDefinition
-	updated []*flowmgt.FlowDefinition
-	byID    map[string]*providers.CompleteFlowDefinition
-	byKey   map[string]*providers.CompleteFlowDefinition
+	created    []*flowmgt.FlowDefinition
+	updated    []*flowmgt.FlowDefinition
+	byID       map[string]*providers.CompleteFlowDefinition
+	byKey      map[string]*providers.CompleteFlowDefinition
+	ouIDByPath map[string]string
 }
 
 type fakeThemeService struct {
@@ -853,6 +854,7 @@ func (f *fakeFlowService) CreateFlow(
 		Name:     flowDef.Name,
 		FlowType: flowDef.FlowType,
 		Nodes:    flowDef.Nodes,
+		OUID:     flowDef.OUID,
 	}
 	f.created = append(f.created, flowDef)
 	f.byID[id] = created
@@ -902,11 +904,27 @@ func (f *fakeFlowService) UpdateFlow(
 		Name:     flowDef.Name,
 		FlowType: flowDef.FlowType,
 		Nodes:    flowDef.Nodes,
+		OUID:     f.byID[flowID].OUID,
 	}
 	f.updated = append(f.updated, flowDef)
 	f.byID[flowID] = updated
 	f.byKey[string(flowDef.FlowType)+":"+flowDef.Handle] = updated
 	return updated, nil
+}
+
+func (f *fakeFlowService) ResolveFlowOU(_ context.Context, flowDef *flowmgt.FlowDefinition) *tidcommon.ServiceError {
+	if flowDef.OUID == "" {
+		if flowDef.OUHandle == "" {
+			return &flowmgt.ErrorFlowOURequired
+		}
+		ouID, ok := f.ouIDByPath[flowDef.OUHandle]
+		if !ok {
+			return &flowmgt.ErrorInvalidFlowOU
+		}
+		flowDef.OUID = ouID
+	}
+	flowDef.OUHandle = ""
+	return nil
 }
 
 // fakeSharingService records what the importer asked it to replay.
@@ -1140,6 +1158,7 @@ func TestImportResources_CreateIDPAndFlow(t *testing.T) {
 		"handle: login",
 		"name: Login Flow",
 		"flowType: AUTHENTICATION",
+		"ouId: ou-1",
 		"nodes: []",
 		"",
 	}, "\n")
@@ -1870,6 +1889,7 @@ func TestImportResources_FlowUpsertCreatePreservesID(t *testing.T) {
 		"handle: registration-flow",
 		"name: Updated Registration Flow",
 		"flowType: REGISTRATION",
+		"ouId: ou-1",
 		"nodes: []",
 		"",
 	}, "\n")
@@ -1885,6 +1905,112 @@ func TestImportResources_FlowUpsertCreatePreservesID(t *testing.T) {
 	assert.Len(t, flowSvc.created, 1)
 	assert.Equal(t, "missing-flow-id", flowSvc.created[0].ID)
 	assert.Len(t, flowSvc.updated, 0)
+}
+
+func TestImportResources_FlowKeepsItsOrganizationUnit(t *testing.T) {
+	flowSvc := &fakeFlowService{
+		byID:  map[string]*providers.CompleteFlowDefinition{},
+		byKey: map[string]*providers.CompleteFlowDefinition{},
+	}
+	svc := newImportService(
+		nil, nil, nil, flowSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	content := strings.Join([]string{
+		"resource_type: flow",
+		"id: owned-flow-id",
+		"handle: owned-flow",
+		"name: Owned Flow",
+		"flowType: AUTHENTICATION",
+		"ouId: ou-1",
+		"nodes: []",
+		"",
+	}, "\n")
+
+	resp, err := svc.ImportResources(context.Background(), &ImportRequest{Content: content})
+
+	require.Nil(t, err)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, statusSuccess, resp.Results[0].Status)
+	require.Len(t, flowSvc.created, 1)
+	assert.Equal(t, "ou-1", flowSvc.created[0].OUID)
+}
+
+func TestImportResources_FlowOrganizationUnit(t *testing.T) {
+	flowDoc := func(owner string) string {
+		lines := []string{
+			"resource_type: flow",
+			"id: owned-flow-id",
+			"handle: owned-flow",
+			"name: Owned Flow",
+			"flowType: AUTHENTICATION",
+		}
+		if owner != "" {
+			lines = append(lines, owner)
+		}
+		return strings.Join(append(lines, "nodes: []", ""), "\n")
+	}
+	existing := func() *fakeFlowService {
+		flow := &providers.CompleteFlowDefinition{
+			ID: "owned-flow-id", Handle: "owned-flow", Name: "Owned Flow",
+			FlowType: providers.FlowTypeAuthentication, OUID: "ou-1",
+		}
+		return &fakeFlowService{
+			byID:       map[string]*providers.CompleteFlowDefinition{"owned-flow-id": flow},
+			byKey:      map[string]*providers.CompleteFlowDefinition{"AUTHENTICATION:owned-flow": flow},
+			ouIDByPath: map[string]string{"default": "ou-1", "other": "ou-2"},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		owner        string
+		dryRun       bool
+		wantStatus   string
+		wantCode     string
+		wantUpdated  int
+		wantOwnerSet string
+	}{
+		{name: "handle resolved to the id", owner: "ouHandle: default", wantStatus: statusSuccess,
+			wantUpdated: 1, wantOwnerSet: "ou-1"},
+		{name: "id wins over the handle", owner: "ouId: ou-1\nouHandle: other", wantStatus: statusSuccess,
+			wantUpdated: 1, wantOwnerSet: "ou-1"},
+		{name: "no owner is refused", owner: "", wantStatus: statusFailed, wantCode: flowmgt.ErrorFlowOURequired.Code},
+		{name: "unknown handle is refused", owner: "ouHandle: nowhere", wantStatus: statusFailed,
+			wantCode: flowmgt.ErrorInvalidFlowOU.Code},
+		{name: "dry run without an owner is refused", owner: "", dryRun: true, wantStatus: statusFailed,
+			wantCode: flowmgt.ErrorFlowOURequired.Code},
+		{name: "dry run accepts the owner the flow has", owner: "ouHandle: default", dryRun: true,
+			wantStatus: statusSuccess},
+		{name: "dry run refuses another owner by id", owner: "ouId: ou-2", dryRun: true, wantStatus: statusFailed,
+			wantCode: flowmgt.ErrorOUUpdateNotAllowed.Code},
+		{name: "dry run refuses another owner by handle", owner: "ouHandle: other", dryRun: true,
+			wantStatus: statusFailed, wantCode: flowmgt.ErrorOUUpdateNotAllowed.Code},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			flowSvc := existing()
+			svc := newImportService(
+				nil, nil, nil, flowSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+			resp, err := svc.ImportResources(context.Background(), &ImportRequest{
+				Content: flowDoc(tc.owner),
+				DryRun:  tc.dryRun,
+				Options: &ImportOptions{
+					Upsert: boolPtr(true), ContinueOnError: boolPtr(true), Target: importTargetRuntime,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, resp.Results, 1)
+			assert.Equal(t, tc.wantStatus, resp.Results[0].Status)
+			assert.Equal(t, tc.wantCode, resp.Results[0].Code)
+			assert.Len(t, flowSvc.updated, tc.wantUpdated)
+			assert.Empty(t, flowSvc.created)
+			if tc.wantOwnerSet != "" {
+				assert.Equal(t, tc.wantOwnerSet, flowSvc.updated[0].OUID)
+				assert.Empty(t, flowSvc.updated[0].OUHandle)
+			}
+		})
+	}
 }
 
 func TestImportResources_FlowUpsertDuplicateHandleFallsBackToHandleUpdate(t *testing.T) {
@@ -1910,6 +2036,7 @@ func TestImportResources_FlowUpsertDuplicateHandleFallsBackToHandleUpdate(t *tes
 		"handle: registration-flow",
 		"name: Updated Registration Flow",
 		"flowType: REGISTRATION",
+		"ouId: ou-1",
 		"nodes: []",
 		"",
 	}, "\n")
@@ -1952,6 +2079,7 @@ func TestImportResources_ApplicationFlowReferencesAreRemappedFromFlowAlias(t *te
 		"handle: registration-flow",
 		"name: Updated Registration Flow",
 		"flowType: REGISTRATION",
+		"ouId: ou-1",
 		"nodes: []",
 		"",
 		"---",
@@ -2255,6 +2383,7 @@ func TestImportResources_UpsertCreatePreservesIDsAcrossResourceTypes(t *testing.
 		"handle: registration-flow",
 		"name: Registration Flow",
 		"flowType: REGISTRATION",
+		"ouId: ou-1",
 		"nodes: []",
 		"",
 	}, "\n")
@@ -3125,6 +3254,7 @@ func TestImportAgent_FlowAliasRemapsFlowIDs(t *testing.T) {
 				"handle: " + tc.flowHandle,
 				"name: " + tc.flowName,
 				"flowType: " + tc.flowType,
+				"ouId: ou-1",
 				"nodes: []",
 				"---",
 				"resource_type: agent",

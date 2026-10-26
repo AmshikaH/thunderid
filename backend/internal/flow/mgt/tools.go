@@ -181,6 +181,7 @@ func (t *flowTools) updateFlow(
 	updateDef := &FlowDefinition{
 		Handle:       currentFlow.Handle,
 		FlowType:     currentFlow.FlowType,
+		OUID:         currentFlow.OUID,
 		Name:         input.Name,
 		Nodes:        input.Nodes,
 		Interceptors: input.Interceptors,
@@ -225,6 +226,7 @@ func getCreateFlowSchema() *jsonschema.Schema {
 	return tool.GenerateSchema[FlowDefinition](
 		tool.WithEnum("", "flowType",
 			[]string{string(providers.FlowTypeAuthentication), string(providers.FlowTypeRegistration)}),
+		tool.WithRequired("", "ouId"),
 	)
 }
 

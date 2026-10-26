@@ -2343,13 +2343,14 @@ Interceptors are cross-cutting operations that execute at defined lifecycle poin
 
 ### Declaration
 
-Add an `interceptors` array to the flow definition body when creating or updating a flow:
+Add an `interceptors` array to the flow definition body when creating or updating a flow. A new flow also names its owner in `ouId`, as described in [Organization Unit Ownership](../flow-concepts#organization-unit-ownership):
 
 ```json
 {
   "handle": "my-login-flow",
   "name": "My Login Flow",
   "flowType": "AUTHENTICATION",
+  "ouId": "<organization-unit-id>",
   "interceptors": [
     {
       "name": "CaptchaInterceptor",

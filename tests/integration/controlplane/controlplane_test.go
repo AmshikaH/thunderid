@@ -420,6 +420,7 @@ func (ts *ControlPlaneTestSuite) TestFlowsAreValidatedAgainstTheExecutorCatalog(
 
 	status, raw := ts.call(http.MethodPost, "/flows", map[string]any{
 		"name":     "Unknown executor flow",
+		"ouId":     ts.ouID,
 		"flowType": "AUTHENTICATION",
 		"handle":   unique("cp-unknown-executor"),
 		"nodes": []map[string]any{

@@ -115,3 +115,139 @@ func (_c *ouProviderMock_GetOrganizationUnit_Call) RunAndReturn(run func(ctx con
 	_c.Call.Return(run)
 	return _c
 }
+
+// GetOrganizationUnitByPath provides a mock function for the type ouProviderMock
+func (_mock *ouProviderMock) GetOrganizationUnitByPath(ctx context.Context, handlePath string) (ou.OrganizationUnit, *common.ServiceError) {
+	ret := _mock.Called(ctx, handlePath)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetOrganizationUnitByPath")
+	}
+
+	var r0 ou.OrganizationUnit
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (ou.OrganizationUnit, *common.ServiceError)); ok {
+		return returnFunc(ctx, handlePath)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ou.OrganizationUnit); ok {
+		r0 = returnFunc(ctx, handlePath)
+	} else {
+		r0 = ret.Get(0).(ou.OrganizationUnit)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, handlePath)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// ouProviderMock_GetOrganizationUnitByPath_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetOrganizationUnitByPath'
+type ouProviderMock_GetOrganizationUnitByPath_Call struct {
+	*mock.Call
+}
+
+// GetOrganizationUnitByPath is a helper method to define mock.On call
+//   - ctx context.Context
+//   - handlePath string
+func (_e *ouProviderMock_Expecter) GetOrganizationUnitByPath(ctx any, handlePath any) *ouProviderMock_GetOrganizationUnitByPath_Call {
+	return &ouProviderMock_GetOrganizationUnitByPath_Call{Call: _e.mock.On("GetOrganizationUnitByPath", ctx, handlePath)}
+}
+
+func (_c *ouProviderMock_GetOrganizationUnitByPath_Call) Run(run func(ctx context.Context, handlePath string)) *ouProviderMock_GetOrganizationUnitByPath_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *ouProviderMock_GetOrganizationUnitByPath_Call) Return(organizationUnit ou.OrganizationUnit, serviceError *common.ServiceError) *ouProviderMock_GetOrganizationUnitByPath_Call {
+	_c.Call.Return(organizationUnit, serviceError)
+	return _c
+}
+
+func (_c *ouProviderMock_GetOrganizationUnitByPath_Call) RunAndReturn(run func(ctx context.Context, handlePath string) (ou.OrganizationUnit, *common.ServiceError)) *ouProviderMock_GetOrganizationUnitByPath_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// IsOrganizationUnitExists provides a mock function for the type ouProviderMock
+func (_mock *ouProviderMock) IsOrganizationUnitExists(ctx context.Context, id string) (bool, *common.ServiceError) {
+	ret := _mock.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsOrganizationUnitExists")
+	}
+
+	var r0 bool
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (bool, *common.ServiceError)); ok {
+		return returnFunc(ctx, id)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) bool); ok {
+		r0 = returnFunc(ctx, id)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, id)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// ouProviderMock_IsOrganizationUnitExists_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsOrganizationUnitExists'
+type ouProviderMock_IsOrganizationUnitExists_Call struct {
+	*mock.Call
+}
+
+// IsOrganizationUnitExists is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+func (_e *ouProviderMock_Expecter) IsOrganizationUnitExists(ctx any, id any) *ouProviderMock_IsOrganizationUnitExists_Call {
+	return &ouProviderMock_IsOrganizationUnitExists_Call{Call: _e.mock.On("IsOrganizationUnitExists", ctx, id)}
+}
+
+func (_c *ouProviderMock_IsOrganizationUnitExists_Call) Run(run func(ctx context.Context, id string)) *ouProviderMock_IsOrganizationUnitExists_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *ouProviderMock_IsOrganizationUnitExists_Call) Return(b bool, serviceError *common.ServiceError) *ouProviderMock_IsOrganizationUnitExists_Call {
+	_c.Call.Return(b, serviceError)
+	return _c
+}
+
+func (_c *ouProviderMock_IsOrganizationUnitExists_Call) RunAndReturn(run func(ctx context.Context, id string) (bool, *common.ServiceError)) *ouProviderMock_IsOrganizationUnitExists_Call {
+	_c.Call.Return(run)
+	return _c
+}
