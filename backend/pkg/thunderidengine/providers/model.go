@@ -244,10 +244,11 @@ type NodePosition struct {
 // NodeDefinition represents a single node in a flow definition.
 type NodeDefinition struct {
 	ID           string                   `json:"id"                     yaml:"id"                     jsonschema:"Unique node identifier within the flow. Example: 'start', 'username-password', 'end'"`
-	Type         string                   `json:"type"                   yaml:"type"                   jsonschema:"Node type: 'START' (entry point), 'END' (exit point), 'TASK_EXECUTION' (backend logic), 'PROMPT' (user input), or 'CALL' (invoke another flow)"`
+	Type         string                   `json:"type"                   yaml:"type"                   jsonschema:"Node type: 'START' (entry point), 'END' (exit point), 'TASK_EXECUTION' (backend logic), 'PROMPT' (user input), 'CALL' (invoke another flow), or 'VARIABLES' (declares the flow's variables and resolves them, showing nothing to the user)"`
 	Layout       *NodeLayout              `json:"layout,omitempty"       yaml:"layout,omitempty"       jsonschema:"Optional UI layout information for flow composer (position and size on canvas)"`
 	Meta         interface{}              `json:"meta,omitempty"         yaml:"meta,omitempty"         jsonschema:"Optional metadata. For PROMPT nodes, must include 'components' array for UI rendering. See existing flows for examples."`
 	Prompts      []PromptDefinition       `json:"prompts,omitempty"      yaml:"prompts,omitempty"      jsonschema:"For PROMPT nodes: defines user inputs and actions. Each prompt has inputs (form fields) and an action (what happens on submit)."`
+	Inputs       []VariableDefinition     `json:"inputs,omitempty"       yaml:"inputs,omitempty"       jsonschema:"For VARIABLES nodes only: the variables the flow declares. Each has a type, a default and optionally the rules a value has to meet."`
 	Variant      NodeVariant              `json:"variant,omitempty"      yaml:"variant,omitempty"      jsonschema:"Optional PROMPT node variant. Use 'LOGIN_OPTIONS' to enable login option filtering on this node."`
 	Next         string                   `json:"next,omitempty"         yaml:"next,omitempty"         jsonschema:"For display-only PROMPT nodes: ID of the next node. Mutually exclusive with 'prompts'."`
 	Message      string                   `json:"message,omitempty"      yaml:"message,omitempty"      jsonschema:"For display-only PROMPT nodes: textual message for non-verbose mode."`
@@ -316,6 +317,23 @@ type InputDefinition struct {
 	Required   bool                       `json:"required"             yaml:"required"             jsonschema:"Whether this input is mandatory."`
 	OneTimeUse bool                       `json:"oneTimeUse,omitempty" yaml:"oneTimeUse,omitempty" jsonschema:"When true, the input is removed from the flow context after being consumed."`
 	Validation []ValidationRuleDefinition `json:"validation,omitempty" yaml:"validation,omitempty" jsonschema:"Server-enforced validation rules applied to the submitted value."`
+}
+
+// VariableDefinition declares one variable of a flow. It is described in the vocabulary of a prompt's inputs: an
+// identifier, a type and validation rules, with the options of a select. Because a variable always has a value, it also
+// has a default, and it can bound a number or name the kind of connection it takes.
+type VariableDefinition struct {
+	Identifier      string                     `json:"identifier"                yaml:"identifier"                jsonschema:"Name of the variable, which a '{{var(name)}}' placeholder uses. Starts with a letter and holds letters, digits and underscores."`
+	Type            string                     `json:"type"                      yaml:"type"                      jsonschema:"Input type: 'TEXT_INPUT', 'EMAIL_INPUT', 'PHONE_INPUT', 'NUMBER_INPUT', 'DATE_INPUT', 'BOOLEAN_INPUT', 'SELECT' or 'CONNECTION_SELECT'."`
+	Label           string                     `json:"label,omitempty"           yaml:"label,omitempty"           jsonschema:"Human-readable name shown where a value is set."`
+	Description     string                     `json:"description,omitempty"     yaml:"description,omitempty"     jsonschema:"What the variable is for."`
+	DefaultValue    interface{}                `json:"defaultValue"              yaml:"defaultValue"              jsonschema:"The value the variable has until another is set. Required, and has to be valid for the type."`
+	Validation      []ValidationRuleDefinition `json:"validation,omitempty"      yaml:"validation,omitempty"      jsonschema:"Rules a text value has to meet: 'regex', 'minLength' and 'maxLength'."`
+	Options         []interface{}              `json:"options,omitempty"         yaml:"options,omitempty"         jsonschema:"For a 'SELECT': the values it can take. All booleans make the variable a boolean, all numbers a number, anything else a string."`
+	Min             *float64                   `json:"min,omitempty"             yaml:"min,omitempty"             jsonschema:"For a 'NUMBER_INPUT': the lowest value."`
+	Max             *float64                   `json:"max,omitempty"             yaml:"max,omitempty"             jsonschema:"For a 'NUMBER_INPUT': the highest value."`
+	Category        string                     `json:"category,omitempty"        yaml:"category,omitempty"        jsonschema:"For a 'CONNECTION_SELECT': the kind of connection it takes, such as 'IDENTITY_PROVIDER'."`
+	ConnectionTypes []string                   `json:"connectionTypes,omitempty" yaml:"connectionTypes,omitempty" jsonschema:"For a 'CONNECTION_SELECT': limits it to these vendors, such as 'google'."`
 }
 
 // ValidationRuleDefinition represents a single validation constraint on an input.

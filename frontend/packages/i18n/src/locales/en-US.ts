@@ -1777,7 +1777,7 @@ const translations = {
     'errors.OU-1004': 'An organization unit with the same name already exists under the same parent.',
     'errors.OU-1005': 'The selected parent organization unit could not be found.',
     'errors.OU-1006':
-      'This organization unit has child units, users, groups, or connections and cannot be deleted while they exist.',
+      'This organization unit has child units, users, groups, connections, or flows and cannot be deleted while they exist.',
     'errors.OU-1007': 'This parent selection would create a circular dependency in the organization hierarchy.',
     'errors.OU-1008': 'An organization unit with the same handle already exists under the same parent.',
     'errors.OU-1012': 'This organization unit is managed by configuration and cannot be modified or deleted.',

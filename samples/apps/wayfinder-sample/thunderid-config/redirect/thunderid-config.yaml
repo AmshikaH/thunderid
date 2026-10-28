@@ -723,11 +723,6 @@ nodes:
     next: invite_verify_support
   - id: invite_verify_support
     type: TASK_EXECUTION
-    inputs:
-      - ref: input_invite_token_s
-        identifier: inviteToken
-        type: HIDDEN
-        required: true
     executor:
       name: InviteExecutor
       mode: verify
@@ -844,11 +839,6 @@ nodes:
     next: invite_verify_destinations
   - id: invite_verify_destinations
     type: TASK_EXECUTION
-    inputs:
-      - ref: input_invite_token_d
-        identifier: inviteToken
-        type: HIDDEN
-        required: true
     executor:
       name: InviteExecutor
       mode: verify

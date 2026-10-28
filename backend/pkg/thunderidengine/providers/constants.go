@@ -531,12 +531,25 @@ const (
 	InputTypeDate = "DATE_INPUT"
 	// InputTypeBoolean represents a boolean (checkbox) input type.
 	InputTypeBoolean = "BOOLEAN_INPUT"
+	// InputTypeConnectionSelect is the type of a flow variable whose value is the identifier of a connection. It is
+	// not an input a prompt can ask for.
+	InputTypeConnectionSelect = "CONNECTION_SELECT"
 
 	// TODO: Add support for other sensitive input types:
 	// - Passkey credential fields (credentialId, clientDataJSON, authenticatorData, signature, userHandle)
 	// - OAuth/OIDC authorization codes
 	// - OIDC nonce
 	// - Invite tokens
+)
+
+// Data types of the value a flow variable resolves to.
+const (
+	// VariableDataTypeString is a variable whose value is a string.
+	VariableDataTypeString = "STRING"
+	// VariableDataTypeNumber is a variable whose value is a number.
+	VariableDataTypeNumber = "NUMBER"
+	// VariableDataTypeBoolean is a variable whose value is a boolean.
+	VariableDataTypeBoolean = "BOOLEAN"
 )
 
 // ValidInputTypes is the set of valid input type strings.

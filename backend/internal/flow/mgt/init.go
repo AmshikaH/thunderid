@@ -42,8 +42,9 @@ func Initialize(
 	ouSvc ouProvider,
 	templateResolver notificationTemplateProvider,
 	configHandler *FlowConfigHandler,
+	idpReader IDPReader,
 ) (FlowMgtServiceInterface, declarativeresource.ResourceExporter, error) {
-	flowValidator := newFlowValidator(executorRegistry, interceptorRegistry, graphBuilder)
+	flowValidator := newFlowValidator(executorRegistry, interceptorRegistry, graphBuilder, idpReader)
 	store, compositeStore, transactioner, err := initializeStore(cacheManager, flowValidator, ouSvc)
 	if err != nil {
 		return nil, nil, err

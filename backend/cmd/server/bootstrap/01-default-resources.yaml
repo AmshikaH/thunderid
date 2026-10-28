@@ -1838,11 +1838,6 @@ nodes:
       y: 726
 - id: invite_verify
   type: TASK_EXECUTION
-  inputs:
-  - ref: input_003
-    identifier: inviteToken
-    type: HIDDEN
-    required: true
   executor:
     name: InviteExecutor
     mode: verify

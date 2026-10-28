@@ -36,6 +36,15 @@ func GetExternalClaim(runtimeData map[string]string, name string) (string, bool)
 	return GetExternalIdentity(runtimeData).Claim(name)
 }
 
+// resolveVariables returns a copy of value with every {{var(name)}} placeholder replaced by the value of the flow
+// variable it names, read from the runtime data of the context. A value that names no variable is returned as it is.
+func resolveVariables(value interface{}, ctx *providers.NodeContext) interface{} {
+	if ctx == nil || len(ctx.RuntimeData) == 0 || len(References(value)) == 0 {
+		return value
+	}
+	return Resolve(value, ctx.RuntimeData)
+}
+
 // placeholderPattern matches {{ctx(key)}} with optional whitespace.
 // TODO: Extend to support {{user(key)}}, {{env(key)}}, etc.
 var placeholderPattern = regexp.MustCompile(`{{\s*ctx\(\s*(\w+)\s*\)\s*}}`)
