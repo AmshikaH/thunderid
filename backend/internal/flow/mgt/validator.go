@@ -32,19 +32,23 @@ type flowValidator struct {
 	executorRegistry    core.ExecutorMetadataProvider
 	interceptorRegistry interceptor.InterceptorRegistryInterface
 	graphBuilder        graphbuilder.GraphBuilderInterface
+	idpReader           IDPReader
 	logger              *log.Logger
 }
 
-// newFlowValidator creates a new instance of flowValidator with the provided dependencies.
+// newFlowValidator creates a new instance of flowValidator with the provided dependencies. The connection reader is
+// optional: without one the default of a connection variable is not checked against a connection.
 func newFlowValidator(
 	executorRegistry core.ExecutorMetadataProvider,
 	interceptorRegistry interceptor.InterceptorRegistryInterface,
 	graphBuilder graphbuilder.GraphBuilderInterface,
+	idpReader IDPReader,
 ) *flowValidator {
 	return &flowValidator{
 		executorRegistry:    executorRegistry,
 		interceptorRegistry: interceptorRegistry,
 		graphBuilder:        graphBuilder,
+		idpReader:           idpReader,
 		logger:              log.GetLogger().With(log.String(log.LoggerKeyComponentName, "FlowValidator")),
 	}
 }
@@ -67,6 +71,10 @@ func (v *flowValidator) ValidateFlowDefinition(
 	}
 
 	if err := v.validateNodes(flowDef.Nodes, nodeIndex, flowDef.FlowType); err != nil {
+		return err
+	}
+
+	if err := v.validateVariables(ctx, flowDef); err != nil {
 		return err
 	}
 

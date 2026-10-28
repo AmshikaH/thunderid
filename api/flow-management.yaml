@@ -23,8 +23,20 @@ info:
       Can optionally have inputs for executors that need user input references.
     - **CALL**: Invokes another flow by reference. Requires a `flow.ref` pointing to the target
       flow handle and `onSuccess` for the return path.
+    - **VARIABLES**: Declares the variables of the flow in `inputs` and resolves them where it sits in the
+      flow. It shows nothing to the user and continues to `onSuccess`. A flow may have several.
     - **END**: Terminal node indicating the end of the flow.
     
+    ## Variables
+    A flow declares the values it lets a deployment configure as **variables**, in `VARIABLES` nodes. Each variable
+    has an identifier, a type, validation rules and a default, in the vocabulary of a prompt's inputs. A step can use a
+    variable as `{{var(identifier)}}` in the string values of its `properties`, in place of a value typed into the step.
+    A value that is nothing but a placeholder resolves to a value of the variable's own type (a boolean variable gives
+    a boolean, a number variable gives a number); inside a longer string the value's text is substituted.
+
+    A step can use a variable only if every route reaches it through the node that declares it, so the value is
+    settled before the step runs. Identifiers are unique across all the `VARIABLES` nodes of a flow.
+
     ## Representation Modes
     - **Verbose Mode**: Includes full UI metadata (components, layouts, labels) for visual flow composer and runtime rendering
     - **Non-Verbose Mode**: Contains only logical flow structure without UI metadata
@@ -1269,9 +1281,13 @@ components:
             - PROMPT
             - TASK_EXECUTION
             - CALL
+            - VARIABLES
             - END
           description: |
-            Type of node
+            Type of node. A `VARIABLES` node declares the flow's variables in `inputs` and resolves them for the run,
+            without showing anything to the user. It continues to `onSuccess`, and takes no other navigation, executor,
+            prompts, properties, meta or condition. A flow may have several. A step may use a variable when every
+            route from the start reaches the step only through the node that declares it.
           example: PROMPT
         layout:
           allOf:
@@ -1295,6 +1311,15 @@ components:
           enum:
             - LOGIN_OPTIONS
           example: LOGIN_OPTIONS
+        inputs:
+          type: array
+          description: |
+            Only on a `VARIABLES` node. The variables the node declares: the identifier, the type, the default and
+            the constraints of each. A variable always has a default, so the flow resolves when nothing else sets a
+            value. A later step refers to a variable as `{{var(identifier)}}` in its properties. An identifier is
+            declared once in the whole flow: it cannot repeat in the same node or in another `VARIABLES` node.
+          items:
+            $ref: '#/components/schemas/VariableDefinition'
         condition:
           description: Optional condition that gates whether this node executes
           allOf:
@@ -1304,7 +1329,10 @@ components:
           additionalProperties: true
           description: |
             Node-level properties for configuration (e.g., senderId for notification executors,
-            idpId for social login executors)
+            idpId for social login executors). A string value may use `{{var(identifier)}}` to take the value
+            of one of the flow's variables, once the flow has passed the `VARIABLES` node that declares it. A value
+            that is nothing but a placeholder takes the variable's own type; inside a longer string the value's text
+            is substituted.
           example:
             senderId: "<SENDER_ID>"
         executor:
@@ -1317,7 +1345,7 @@ components:
             - $ref: '#/components/schemas/FlowReference'
         onSuccess:
           type: string
-          description: Next node ID on successful execution (START, TASK_EXECUTION, and CALL nodes)
+          description: Next node ID on successful execution (START, TASK_EXECUTION, CALL, and VARIABLES nodes)
           example: node_003
         onFailure:
           type: string
@@ -1342,6 +1370,90 @@ components:
             alongside the flow status, intended for lightweight clients that do not process
             the full meta/components payload.
           example: "Registration complete. You may now sign in."
+
+    VariableDefinition:
+      type: object
+      description: |
+        One variable of a flow, in the vocabulary of a prompt's inputs: an identifier, a type, validation rules and,
+        for a select, options. A variable always has a value, so it also has a default.
+      required:
+        - identifier
+        - type
+        - defaultValue
+      properties:
+        identifier:
+          type: string
+          description: Name of the variable. Starts with a letter and holds letters, digits and underscores.
+          example: supportEmail
+        type:
+          type: string
+          enum:
+            - TEXT_INPUT
+            - EMAIL_INPUT
+            - PHONE_INPUT
+            - NUMBER_INPUT
+            - DATE_INPUT
+            - BOOLEAN_INPUT
+            - SELECT
+            - CONNECTION_SELECT
+          description: |
+            How the value is entered and checked. Text types accept `validation` rules, `NUMBER_INPUT` accepts `min`
+            and `max`, `SELECT` needs `options`, and `CONNECTION_SELECT` takes the id of a connection of the
+            `category`.
+        label:
+          type: string
+        description:
+          type: string
+        defaultValue:
+          description: |
+            The value the variable has until another is set. A boolean for `BOOLEAN_INPUT`, a number for `NUMBER_INPUT`,
+            a string for the other input types, and for a `SELECT` one of its `options`. Required, so the flow resolves when
+            nothing else sets a value. A `CONNECTION_SELECT` default has to be a connection of the organization unit
+            that owns the flow, of a kind the variable takes.
+        validation:
+          type: array
+          description: Rules a text, email or phone value has to meet
+          items:
+            type: object
+            required:
+              - type
+              - value
+            properties:
+              type:
+                type: string
+                enum:
+                  - regex
+                  - minLength
+                  - maxLength
+              value: {}
+              message:
+                type: string
+        options:
+          type: array
+          description: |
+            For a `SELECT`, the values it can take: strings, numbers or booleans. All booleans make the variable resolve
+            to a boolean, all numbers to a number, and anything else, a mix included, to a string.
+          items: {}
+        min:
+          type: number
+        max:
+          type: number
+        category:
+          type: string
+          enum:
+            - IDENTITY_PROVIDER
+          description: For a `CONNECTION_SELECT`, the kind of connection it takes
+        connectionTypes:
+          type: array
+          description: For a `CONNECTION_SELECT`, limits it to these vendors
+          items:
+            type: string
+      example:
+        identifier: supportEmail
+        type: EMAIL_INPUT
+        label: Support email
+        description: Shown to users who cannot sign in
+        defaultValue: support@example.com
 
     NodeLayout:
       type: object

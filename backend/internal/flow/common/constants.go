@@ -30,6 +30,9 @@ const (
 	NodeTypePrompt NodeType = "PROMPT"
 	// NodeTypeCall represents a CALL node that invokes another flow
 	NodeTypeCall NodeType = "CALL"
+	// NodeTypeVariables represents a VARIABLES node, which declares the variables of a flow and resolves their values
+	// without showing anything to the user.
+	NodeTypeVariables NodeType = "VARIABLES"
 )
 
 // NodeStatus defines the status of a node in the flow execution.
@@ -414,4 +417,5 @@ var ValidNodeTypes = map[string]bool{
 	string(NodeTypeTaskExecution): true,
 	string(NodeTypePrompt):        true,
 	string(NodeTypeCall):          true,
+	string(NodeTypeVariables):     true,
 }

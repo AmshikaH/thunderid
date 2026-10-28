@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/flowvar"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 )
@@ -34,6 +35,15 @@ func GetExternalIdentity(runtimeData map[string]string) *ExternalIdentity {
 // helper, so the order in which claims are consulted lives in one place.
 func GetExternalClaim(runtimeData map[string]string, name string) (string, bool) {
 	return GetExternalIdentity(runtimeData).Claim(name)
+}
+
+// resolveVariables returns a copy of value with every {{var(name)}} placeholder replaced by the value of the flow
+// variable it names, read from the runtime data of the context. A value that names no variable is returned as it is.
+func resolveVariables(value interface{}, ctx *providers.NodeContext) interface{} {
+	if ctx == nil || len(ctx.RuntimeData) == 0 || len(flowvar.References(value)) == 0 {
+		return value
+	}
+	return flowvar.Resolve(value, ctx.RuntimeData)
 }
 
 // placeholderPattern matches {{ctx(key)}} with optional whitespace.

@@ -1215,7 +1215,7 @@ func (s *ValidatorTestSuite) TestValidateFlowDefinition_InvalidStructure() {
 func (s *ValidatorTestSuite) TestValidateFlowDefinition_InvalidNodeFormat() {
 	fd := minimalValidFlow()
 	// START node with onFailure set -- structure is valid but node format is not.
-	fd.Nodes[0].OnFailure = "end"
+	fd.Nodes[0].OnFailure = endNode
 	err := s.v.ValidateFlowDefinition(context.Background(), fd)
 	s.Require().NotNil(err)
 	s.Equal(ErrorInvalidFlowData.Code, err.Code)
